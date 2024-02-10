@@ -83,6 +83,7 @@ int main()
     // -----------
     Model ourModel("../resources/models/backpack/backpack.obj");
     Model lantern("../resources/models/japanese-lamp/JapaneseLamp.obj");
+    Model floor("../resources/models/tile-floor/tile-floor.obj");
     
     // draw in wireframe
     // glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
@@ -206,6 +207,24 @@ int main()
         model = glm::rotate(model, angle, glm::vec3(0.0f, 1.0f, 0.0f));
         mainShader.setMat4("model", model);
         lantern.Draw(mainShader);
+
+        // render the loaded model (floor)
+        glm::vec3 floorPos = glm::vec3(0.0f, -3.0f, 0.0f);
+        glm::vec3 floorDims = floor.Get0MeshDimensions();
+
+        model = glm::mat4(1.0f);
+        model = glm::translate(model, floorPos);
+        model = glm::scale(model, glm::vec3(1.0f, 1.0f, 1.0f));
+        mainShader.setMat4("model", model);
+        floor.Draw(mainShader);
+
+        for (unsigned int i = 0; i < 10; ++i) {
+            model = glm::mat4(1.0f);
+            model = glm::translate(model, floorPos - (glm::vec3((float)i) * glm::vec3(0.0f, 0.0f, floorDims.z)));
+            model = glm::scale(model, glm::vec3(1.0f, 1.0f, 1.0f));
+            mainShader.setMat4("model", model);
+            floor.Draw(mainShader);
+        }
 
         // glfw: swap buffers and poll IO events (keys pressed/released, mouse moved etc.)
         // -------------------------------------------------------------------------------
