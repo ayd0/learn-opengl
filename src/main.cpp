@@ -15,6 +15,7 @@
 
 #include <iostream>
 
+void renderPointLight(Shader &shader, int index, glm::vec3 position, glm::vec3 color);
 void framebuffer_size_callback(GLFWwindow* window, int width, int height);
 void mouse_callback(GLFWwindow* window, double xpos, double ypos);
 void scroll_callback(GLFWwindow* window, double xoffset, double yoffset);
@@ -35,11 +36,13 @@ float deltaTime = 0.0f;
 float lastFrame = 0.0f;
 
 // input
-bool firstToggle = true;
-bool cursorDisabled = true;
 bool qHeld = false;
+bool fHeld;
 bool shiftHeld = false;
 float speedMult = 3.0f;
+bool firstToggle = true;
+bool cursorDisabled = true;
+bool flashlightOn = false;
 
 int main()
 {
@@ -90,6 +93,10 @@ int main()
     // -------------------------
     Shader mainShader("../shaders/3.3.lighting_maps.vs", "../shaders/3.3.models.fs");
 
+    // shader properties
+    // -----------------
+    mainShader.use();
+
     // load models
     // -----------
     Model ourModel("../resources/models/backpack/backpack.obj");
@@ -103,8 +110,6 @@ int main()
     glm::vec3 pointLightPositions[] = {
         glm::vec3( 2.0f, 2.0f, -3.0f),
         glm::vec3( 0.0f, 2.0f, 0.0f),
-        glm::vec3(-14.0f, 2.0f, -12.0f),
-        glm::vec3( 10.0f, 0.0f, -3.0f)
     };  
 
     // ImGui implementation
@@ -148,7 +153,7 @@ int main()
         mainShader.use();
 
         // view/projection transformations
-        glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 1000.0f);
+        glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 100.0f);
         glm::mat4 view = camera.GetViewMatrix();
 
         // light properties
@@ -166,54 +171,28 @@ int main()
         // shader properties
         mainShader.setVec3("viewPos", camera.Position);
 
-        // direction light shadess
+        // direction light shader
         mainShader.setVec3("dirLight.direction", -0.2f, -1.0f, -0.3f);
         mainShader.setVec3("dirLight.ambient", dirColor * 0.1f);
         mainShader.setVec3("dirLight.diffuse", dirColor * 0.2f);
         mainShader.setVec3("dirLight.specular", dirColor * 0.5f);
-        // point light 1 shader
-        mainShader.setVec3("pointLights[0].position", pointLightPositions[0]);
-        mainShader.setVec3("pointLights[0].ambient", lampColor * glm::vec3(0.5f));
-        mainShader.setVec3("pointLights[0].diffuse", lampColor * glm::vec3(0.8f));
-        mainShader.setVec3("pointLights[0].specular", lampColor * glm::vec3(1.0));
-        mainShader.setFloat("pointLights[0].constant", 1.0f);
-        mainShader.setFloat("pointLights[0].linear", 0.09f);
-        mainShader.setFloat("pointLights[0].quadratic", 0.032f);
-        // point light 2 shader
-        mainShader.setVec3("pointLights[1].position", pointLightPositions[1]);
-        mainShader.setVec3("pointLights[1].ambient", 0.05f, 0.05f, 0.05f);
-        mainShader.setVec3("pointLights[1].diffuse", 0.8f, 0.8f, 0.8f);
-        mainShader.setVec3("pointLights[1].specular", 1.0f, 1.0f, 1.0f);
-        mainShader.setFloat("pointLights[1].constant", 1.0f);
-        mainShader.setFloat("pointLights[1].linear", 0.09f);
-        mainShader.setFloat("pointLights[1].quadratic", 0.032f);
-        // point light 3 shader
-        mainShader.setVec3("pointLights[2].position", pointLightPositions[2]);
-        mainShader.setVec3("pointLights[2].ambient", 0.05f, 0.05f, 0.05f);
-        mainShader.setVec3("pointLights[2].diffuse", 0.8f, 0.8f, 0.8f);
-        mainShader.setVec3("pointLights[2].specular", 1.0f, 1.0f, 1.0f);
-        mainShader.setFloat("pointLights[2].constant", 1.0f);
-        mainShader.setFloat("pointLights[2].linear", 0.09f);
-        mainShader.setFloat("pointLights[2].quadratic", 0.032f);
-        // point light 4 shader
-        mainShader.setVec3("pointLights[3].position", pointLightPositions[3]);
-        mainShader.setVec3("pointLights[3].ambient", 0.05f, 0.05f, 0.05f);
-        mainShader.setVec3("pointLights[3].diffuse", 0.8f, 0.8f, 0.8f);
-        mainShader.setVec3("pointLights[3].specular", 1.0f, 1.0f, 1.0f);
-        mainShader.setFloat("pointLights[3].constant", 1.0f);
-        mainShader.setFloat("pointLights[3].linear", 0.09f);
-        mainShader.setFloat("pointLights[3].quadratic", 0.032f);
+        // point light shaders
+        renderPointLight(mainShader, 0, pointLightPositions[0], lampColor);
+        renderPointLight(mainShader, 1, pointLightPositions[1], lampColor);
         // spotlight shader
         mainShader.setVec3("spotlight.position", camera.Position);
         mainShader.setVec3("spotlight.direction", camera.Front);
         mainShader.setFloat("spotlight.cutoff", glm::cos(glm::radians(12.5f)));
         mainShader.setFloat("spotlight.outerCutoff", glm::cos(glm::radians(17.5f)));
-        // mainShader.setVec3("spotlight.ambient", 0.1f, 0.1f, 0.1f);
-        // mainShader.setVec3("spotlight.diffuse", 0.8f, 0.8f, 0.8f);
-        // mainShader.setVec3("spotlight.specular", 1.0f, 1.0f, 1.0f);
-        mainShader.setVec3("spotlight.ambient", glm::vec3(0.0));
-        mainShader.setVec3("spotlight.diffuse", glm::vec3(0.0));
-        mainShader.setVec3("spotlight.specular", glm::vec3(0.0));
+        if (flashlightOn) {
+            mainShader.setVec3("spotlight.ambient", 0.1f, 0.1f, 0.1f);
+            mainShader.setVec3("spotlight.diffuse", 0.8f, 0.8f, 0.8f);
+            mainShader.setVec3("spotlight.specular", 1.0f, 1.0f, 1.0f);
+        } else {
+            mainShader.setVec3("spotlight.ambient", glm::vec3(0.0));
+            mainShader.setVec3("spotlight.diffuse", glm::vec3(0.0));
+            mainShader.setVec3("spotlight.specular", glm::vec3(0.0));
+        }
         mainShader.setFloat("spotlight.constant", 1.0f);
         mainShader.setFloat("spotlight.linear", 0.09f);
         mainShader.setFloat("spotlight.quadratic", 0.032f);
@@ -270,10 +249,11 @@ int main()
         // render ImGui window
         // -------------------
         ImGui::Begin("Debug Panel");
+        ImGui::Text("FPS: %.1f", ImGui::GetIO().Framerate);
         ImGui::Text("Directional Light");
         ImGui::ColorEdit3("Color", dirColorG);
         // ImGui::CheckBOx("Name", &val);
-        ImGui::SliderFloat("Name", &speedMult, 1.0f, 50.0f);
+        ImGui::SliderFloat("Speed Mult", &speedMult, 1.0f, 50.0f);
         ImGui::End();
 
         ImGui::Render();
@@ -297,6 +277,19 @@ int main()
     return 0;
 }
 
+// render point lights
+// -------------------
+void renderPointLight(Shader &shader, int index, glm::vec3 position, glm::vec3 color) { 
+        std::string uniform = "pointLights[" + std::to_string(index) + "].";
+        shader.setVec3(uniform + "position", position);
+        shader.setVec3(uniform + "ambient", color * glm::vec3(0.05f, 0.05f, 0.05f));
+        shader.setVec3(uniform + "diffuse", color * glm::vec3(0.8f, 0.8f, 0.8f));
+        shader.setVec3(uniform + "specular", color * glm::vec3(1.0f, 1.0f, 1.0f));
+        shader.setFloat(uniform + "constant", 1.0f);
+        shader.setFloat(uniform + "linear", 0.09f);
+        shader.setFloat(uniform + "quadratic", 0.032f);
+}
+
 // process all input: query GLFW whether relevant keys are pressed/released this frame and react accordingly
 // ---------------------------------------------------------------------------------------------------------
 void processInput(GLFWwindow *window)
@@ -307,11 +300,11 @@ void processInput(GLFWwindow *window)
     if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
         camera.ProcessKeyboard(FORWARD, shiftHeld ? deltaTime * speedMult : deltaTime);
     if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
-        camera.ProcessKeyboard(BACKWARD, shiftHeld ? deltaTime * 3.0 : deltaTime);
+        camera.ProcessKeyboard(BACKWARD, shiftHeld ? deltaTime * speedMult : deltaTime);
     if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
-        camera.ProcessKeyboard(LEFT, shiftHeld ? deltaTime * 3.0 : deltaTime);
+        camera.ProcessKeyboard(LEFT, shiftHeld ? deltaTime * speedMult : deltaTime);
     if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
-        camera.ProcessKeyboard(RIGHT, shiftHeld ? deltaTime * 3.0 : deltaTime);
+        camera.ProcessKeyboard(RIGHT, shiftHeld ? deltaTime * speedMult : deltaTime);
     if (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS)
         shiftHeld = true;
     if (shiftHeld && glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_RELEASE)
@@ -329,6 +322,15 @@ void processInput(GLFWwindow *window)
         }
     } else {
         qHeld = false;
+    }
+    if (glfwGetKey(window, GLFW_KEY_F) == GLFW_PRESS) {
+        firstToggle = false;
+        if (!fHeld) {
+            flashlightOn = !flashlightOn;
+            fHeld = true;
+        }
+    } else {
+        fHeld = false;
     }
 
 }

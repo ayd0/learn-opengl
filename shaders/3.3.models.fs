@@ -26,7 +26,7 @@ struct PointLight {
     vec3 diffuse;
     vec3 specular;
 };
-#define NR_POINT_LIGHTS 4
+#define NR_POINT_LIGHTS 2
 
 struct Spotlight {
     vec3 position;
