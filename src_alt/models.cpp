@@ -15,7 +15,6 @@ void framebuffer_size_callback(GLFWwindow* window, int width, int height);
 void mouse_callback(GLFWwindow* window, double xpos, double ypos);
 void scroll_callback(GLFWwindow* window, double xoffset, double yoffset);
 void processInput(GLFWwindow *window);
-unsigned int loadCubemap(vector<std::string> faces);
 
 // settings
 const unsigned int SCR_WIDTH = 1600;
@@ -85,10 +84,10 @@ int main()
     Model ourModel("../resources/models/backpack/backpack.obj");
     Model lantern("../resources/models/japanese-lamp/JapaneseLamp.obj");
     Model floor("../resources/models/tile-floor/tile-floor.obj");
-
+    
     // draw in wireframe
     // glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-
+    
     // position all pointlights
     glm::vec3 pointLightPositions[] = {
         glm::vec3( 2.0f, 2.0f, -3.0f),
@@ -96,15 +95,6 @@ int main()
         glm::vec3(-14.0f, 2.0f, -12.0f),
         glm::vec3( 10.0f, 0.0f, -3.0f)
     };  
-
-    // create and bind framebuffer
-    // ------------------
-    unsigned int fbo;
-    glGenFramebuffers(1, &fbo);
-    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
-    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE) {
-        // do the thing
-    }
 
     // render loop
     // -----------
@@ -125,20 +115,21 @@ int main()
         glClearColor(0.05f, 0.05f, 0.05f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        // enable shaders before setting uniforms
+        // don't forget to enable shader before setting uniforms
         mainShader.use();
-        
+
         // view/projection transformations
         glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 1000.0f);
         glm::mat4 view = camera.GetViewMatrix();
 
         // light properties
-        glm::vec3 dirColor = glm::vec3(0.0f, 0.0f, 0.0f);
+        // glm::vec3 dirColor = glm::vec3(0.94f, 0.6f, 0.5f);
+        glm::vec3 dirColor = glm::vec3(0.00f, 0.0f, 0.0f);
         glm::vec3 lampColor = glm::vec3(0.9f, 0.68f, 0.08f);
+
         pointLightPositions[0].x = sin(glfwGetTime()) * 3.5f;
         pointLightPositions[0].z = cos(glfwGetTime()) * 3.5f;
 
-        // floor multiplier (used in lighting position calc)
         const unsigned int floorMult = 200;
         // pointLightPositions[1].z = -abs(cos(glfwGetTime() * .5f) * floorMult * 3);
         pointLightPositions[1] = glm::vec3(0.0f, 5.0f, -10.0f);
@@ -148,9 +139,9 @@ int main()
 
         // direction light shadess
         mainShader.setVec3("dirLight.direction", -0.2f, -1.0f, -0.3f);
-        mainShader.setVec3("dirLight.ambient", dirColor * 0.5f);
-        mainShader.setVec3("dirLight.diffuse", dirColor * 0.7f);
-        mainShader.setVec3("dirLight.specular", dirColor * 0.8f);
+        mainShader.setVec3("dirLight.ambient", dirColor * 0.1f);
+        mainShader.setVec3("dirLight.diffuse", dirColor * 0.2f);
+        mainShader.setVec3("dirLight.specular", dirColor * 0.5f);
         // point light 1 shader
         mainShader.setVec3("pointLights[0].position", pointLightPositions[0]);
         mainShader.setVec3("pointLights[0].ambient", lampColor * glm::vec3(0.5f));
@@ -246,7 +237,7 @@ int main()
             mainShader.setMat4("model", model);
             floor.Draw(mainShader);
         }
-
+        
         // glfw: swap buffers and poll IO events (keys pressed/released, mouse moved etc.)
         // -------------------------------------------------------------------------------
         glfwSwapBuffers(window);
