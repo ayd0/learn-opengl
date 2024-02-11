@@ -15,7 +15,7 @@ void framebuffer_size_callback(GLFWwindow* window, int width, int height);
 void mouse_callback(GLFWwindow* window, double xpos, double ypos);
 void scroll_callback(GLFWwindow* window, double xoffset, double yoffset);
 void processInput(GLFWwindow *window);
-unsigned int loadCubemap(vector<std::string> faces);
+unsigned int loadTexture(char const *path);
 
 // settings
 const unsigned int SCR_WIDTH = 1600;
@@ -30,6 +30,11 @@ bool firstMouse = true;
 // timing
 float deltaTime = 0.0f;
 float lastFrame = 0.0f;
+
+// input
+bool qHeld = false;
+unsigned int shaderSelector = 0; // determines screenShader's value
+unsigned int numScreenShaders = 0;
 
 int main()
 {
@@ -78,13 +83,16 @@ int main()
 
     // build and compile shaders
     // -------------------------
-    Shader mainShader("../shaders/3.3.lighting_maps.vs", "../shaders/3.3.models.fs");
-
-    // load models
-    // -----------
-    Model ourModel("../resources/models/backpack/backpack.obj");
-    Model lantern("../resources/models/japanese-lamp/JapaneseLamp.obj");
-    Model floor("../resources/models/tile-floor/tile-floor.obj");
+    Shader shader("../shaders/framebuffer.vs", "../shaders/framebuffer.fs");
+    vector<Shader> screenShader = {
+        Shader("../shaders/framebuffer-screen.vs", "../shaders/framebuffer-screen.fs"),
+        Shader("../shaders/framebuffer-screen.vs", "../shaders/framebuffer-screen-invert.fs"),
+        Shader("../shaders/framebuffer-screen.vs", "../shaders/framebuffer-screen-grayscale.fs"),
+        Shader("../shaders/framebuffer-screen.vs", "../shaders/framebuffer-screen-sharpen.fs"),
+        Shader("../shaders/framebuffer-screen.vs", "../shaders/framebuffer-screen-blur.fs"),
+        Shader("../shaders/framebuffer-screen.vs", "../shaders/framebuffer-screen-edge.fs"),
+    };
+    numScreenShaders = screenShader.size() - 1;
 
     // draw in wireframe
     // glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
@@ -102,9 +110,152 @@ int main()
     unsigned int fbo;
     glGenFramebuffers(1, &fbo);
     glBindFramebuffer(GL_FRAMEBUFFER, fbo);
-    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE) {
-        // do the thing
-    }
+
+    // create framebuffer texture
+    // --------------------------
+    unsigned int textureColorBuffer;
+    glGenTextures(1, &textureColorBuffer);
+    glBindTexture(GL_TEXTURE_2D, textureColorBuffer);
+
+    // set data param to NULL as we're allocating memory and not filling it
+    // filling the texture will happen as soon as we render to the framebuffer
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, SCR_WIDTH, SCR_HEIGHT, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    // attach texture to fbo
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, textureColorBuffer, 0);
+
+    // create and bind renderbuffer object
+    // --------------------------
+    unsigned int rbo;
+    glGenRenderbuffers(1, &rbo);
+    glBindRenderbuffer(GL_RENDERBUFFER, rbo);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, SCR_WIDTH, SCR_HEIGHT);  
+    glBindRenderbuffer(GL_RENDERBUFFER, 0);
+    // attach rbo to depth and stencil attachment of framebuffer
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, rbo);
+
+    // check if framebuffer is complete
+    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+        std::cout << "ERROR::FRAMEBUFFER:: Framebuffer is not complete!" << std::endl;
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+     // set up vertex data (and buffer(s)) and configure vertex attributes
+    // ------------------------------------------------------------------
+    float cubeVertices[] = {
+        // positions          // texture Coords
+        -0.5f, -0.5f, -0.5f,  0.0f, 0.0f,
+         0.5f, -0.5f, -0.5f,  1.0f, 0.0f,
+         0.5f,  0.5f, -0.5f,  1.0f, 1.0f,
+         0.5f,  0.5f, -0.5f,  1.0f, 1.0f,
+        -0.5f,  0.5f, -0.5f,  0.0f, 1.0f,
+        -0.5f, -0.5f, -0.5f,  0.0f, 0.0f,
+
+        -0.5f, -0.5f,  0.5f,  0.0f, 0.0f,
+         0.5f, -0.5f,  0.5f,  1.0f, 0.0f,
+         0.5f,  0.5f,  0.5f,  1.0f, 1.0f,
+         0.5f,  0.5f,  0.5f,  1.0f, 1.0f,
+        -0.5f,  0.5f,  0.5f,  0.0f, 1.0f,
+        -0.5f, -0.5f,  0.5f,  0.0f, 0.0f,
+
+        -0.5f,  0.5f,  0.5f,  1.0f, 0.0f,
+        -0.5f,  0.5f, -0.5f,  1.0f, 1.0f,
+        -0.5f, -0.5f, -0.5f,  0.0f, 1.0f,
+        -0.5f, -0.5f, -0.5f,  0.0f, 1.0f,
+        -0.5f, -0.5f,  0.5f,  0.0f, 0.0f,
+        -0.5f,  0.5f,  0.5f,  1.0f, 0.0f,
+
+         0.5f,  0.5f,  0.5f,  1.0f, 0.0f,
+         0.5f,  0.5f, -0.5f,  1.0f, 1.0f,
+         0.5f, -0.5f, -0.5f,  0.0f, 1.0f,
+         0.5f, -0.5f, -0.5f,  0.0f, 1.0f,
+         0.5f, -0.5f,  0.5f,  0.0f, 0.0f,
+         0.5f,  0.5f,  0.5f,  1.0f, 0.0f,
+
+        -0.5f, -0.5f, -0.5f,  0.0f, 1.0f,
+         0.5f, -0.5f, -0.5f,  1.0f, 1.0f,
+         0.5f, -0.5f,  0.5f,  1.0f, 0.0f,
+         0.5f, -0.5f,  0.5f,  1.0f, 0.0f,
+        -0.5f, -0.5f,  0.5f,  0.0f, 0.0f,
+        -0.5f, -0.5f, -0.5f,  0.0f, 1.0f,
+
+        -0.5f,  0.5f, -0.5f,  0.0f, 1.0f,
+         0.5f,  0.5f, -0.5f,  1.0f, 1.0f,
+         0.5f,  0.5f,  0.5f,  1.0f, 0.0f,
+         0.5f,  0.5f,  0.5f,  1.0f, 0.0f,
+        -0.5f,  0.5f,  0.5f,  0.0f, 0.0f,
+        -0.5f,  0.5f, -0.5f,  0.0f, 1.0f
+    };
+    float planeVertices[] = {
+        // positions          // texture Coords (note we set these higher than 1 (together with GL_REPEAT as texture wrapping mode). this will cause the floor texture to repeat)
+         5.0f, -0.5f,  5.0f,  2.0f, 0.0f,
+        -5.0f, -0.5f,  5.0f,  0.0f, 0.0f,
+        -5.0f, -0.5f, -5.0f,  0.0f, 2.0f,
+
+         5.0f, -0.5f,  5.0f,  2.0f, 0.0f,
+        -5.0f, -0.5f, -5.0f,  0.0f, 2.0f,
+         5.0f, -0.5f, -5.0f,  2.0f, 2.0f								
+    };
+    float quadVertices[] = { // vertex attributes for a quad that fills the entire screen in Normalized Device Coordinates.
+        // positions   // texCoords
+        -1.0f,  1.0f,  0.0f, 1.0f,
+        -1.0f, -1.0f,  0.0f, 0.0f,
+         1.0f, -1.0f,  1.0f, 0.0f,
+
+        -1.0f,  1.0f,  0.0f, 1.0f,
+         1.0f, -1.0f,  1.0f, 0.0f,
+         1.0f,  1.0f,  1.0f, 1.0f
+    };
+
+    // load textures
+    // -------------
+    unsigned int cubeTexture  = loadTexture(("../resources/textures/container2.png"));
+    unsigned int floorTexture = loadTexture(("../resources/textures/metal.jpg"));
+
+    // shader config
+    // -------------
+    shader.use();
+    shader.setInt("texture1", 0);
+
+    screenShader[0].use();
+    screenShader[0].setInt("screenTexture", 0);
+
+    // cube VAO
+    unsigned int cubeVAO, cubeVBO;
+    glGenVertexArrays(1, &cubeVAO);
+    glGenBuffers(1, &cubeVBO);
+    glBindVertexArray(cubeVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, cubeVBO);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(cubeVertices), &cubeVertices, GL_STATIC_DRAW);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)(3 * sizeof(float)));
+    glBindVertexArray(0);
+    // plane VAO
+    unsigned int planeVAO, planeVBO;
+    glGenVertexArrays(1, &planeVAO);
+    glGenBuffers(1, &planeVBO);
+    glBindVertexArray(planeVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, planeVBO);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(planeVertices), &planeVertices, GL_STATIC_DRAW);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)(3 * sizeof(float)));
+    glBindVertexArray(0);
+    // screen quad VAO
+    unsigned int quadVAO, quadVBO;
+    glGenVertexArrays(1, &quadVAO);
+    glGenBuffers(1, &quadVBO);
+    glBindVertexArray(quadVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, quadVBO);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(quadVertices), &quadVertices, GL_STATIC_DRAW);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(2 * sizeof(float)));
 
     // render loop
     // -----------
@@ -122,136 +273,66 @@ int main()
 
         // render
         // ------
-        glClearColor(0.05f, 0.05f, 0.05f, 1.0f);
+        // bind to framebuffer and draw scene as normal to color texture
+        glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+        glEnable(GL_DEPTH_TEST);
+
+        // clear framebuffer
+        glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        // enable shaders before setting uniforms
-        mainShader.use();
-        
-        // view/projection transformations
-        glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 1000.0f);
-        glm::mat4 view = camera.GetViewMatrix();
-
-        // light properties
-        glm::vec3 dirColor = glm::vec3(0.0f, 0.0f, 0.0f);
-        glm::vec3 lampColor = glm::vec3(0.9f, 0.68f, 0.08f);
-        pointLightPositions[0].x = sin(glfwGetTime()) * 3.5f;
-        pointLightPositions[0].z = cos(glfwGetTime()) * 3.5f;
-
-        // floor multiplier (used in lighting position calc)
-        const unsigned int floorMult = 200;
-        // pointLightPositions[1].z = -abs(cos(glfwGetTime() * .5f) * floorMult * 3);
-        pointLightPositions[1] = glm::vec3(0.0f, 5.0f, -10.0f);
-
-        // shader properties
-        mainShader.setVec3("viewPos", camera.Position);
-
-        // direction light shadess
-        mainShader.setVec3("dirLight.direction", -0.2f, -1.0f, -0.3f);
-        mainShader.setVec3("dirLight.ambient", dirColor * 0.5f);
-        mainShader.setVec3("dirLight.diffuse", dirColor * 0.7f);
-        mainShader.setVec3("dirLight.specular", dirColor * 0.8f);
-        // point light 1 shader
-        mainShader.setVec3("pointLights[0].position", pointLightPositions[0]);
-        mainShader.setVec3("pointLights[0].ambient", lampColor * glm::vec3(0.5f));
-        mainShader.setVec3("pointLights[0].diffuse", lampColor * glm::vec3(0.8f));
-        mainShader.setVec3("pointLights[0].specular", lampColor * glm::vec3(1.0));
-        mainShader.setFloat("pointLights[0].constant", 1.0f);
-        mainShader.setFloat("pointLights[0].linear", 0.09f);
-        mainShader.setFloat("pointLights[0].quadratic", 0.032f);
-        // point light 2 shader
-        mainShader.setVec3("pointLights[1].position", pointLightPositions[1]);
-        mainShader.setVec3("pointLights[1].ambient", 0.05f, 0.05f, 0.05f);
-        mainShader.setVec3("pointLights[1].diffuse", 0.8f, 0.8f, 0.8f);
-        mainShader.setVec3("pointLights[1].specular", 1.0f, 1.0f, 1.0f);
-        mainShader.setFloat("pointLights[1].constant", 1.0f);
-        mainShader.setFloat("pointLights[1].linear", 0.09f);
-        mainShader.setFloat("pointLights[1].quadratic", 0.032f);
-        // point light 3 shader
-        mainShader.setVec3("pointLights[2].position", pointLightPositions[2]);
-        mainShader.setVec3("pointLights[2].ambient", 0.05f, 0.05f, 0.05f);
-        mainShader.setVec3("pointLights[2].diffuse", 0.8f, 0.8f, 0.8f);
-        mainShader.setVec3("pointLights[2].specular", 1.0f, 1.0f, 1.0f);
-        mainShader.setFloat("pointLights[2].constant", 1.0f);
-        mainShader.setFloat("pointLights[2].linear", 0.09f);
-        mainShader.setFloat("pointLights[2].quadratic", 0.032f);
-        // point light 4 shader
-        mainShader.setVec3("pointLights[3].position", pointLightPositions[3]);
-        mainShader.setVec3("pointLights[3].ambient", 0.05f, 0.05f, 0.05f);
-        mainShader.setVec3("pointLights[3].diffuse", 0.8f, 0.8f, 0.8f);
-        mainShader.setVec3("pointLights[3].specular", 1.0f, 1.0f, 1.0f);
-        mainShader.setFloat("pointLights[3].constant", 1.0f);
-        mainShader.setFloat("pointLights[3].linear", 0.09f);
-        mainShader.setFloat("pointLights[3].quadratic", 0.032f);
-        // spotlight shader
-        mainShader.setVec3("spotlight.position", camera.Position);
-        mainShader.setVec3("spotlight.direction", camera.Front);
-        mainShader.setFloat("spotlight.cutoff", glm::cos(glm::radians(12.5f)));
-        mainShader.setFloat("spotlight.outerCutoff", glm::cos(glm::radians(17.5f)));
-        // mainShader.setVec3("spotlight.ambient", 0.1f, 0.1f, 0.1f);
-        // mainShader.setVec3("spotlight.diffuse", 0.8f, 0.8f, 0.8f);
-        // mainShader.setVec3("spotlight.specular", 1.0f, 1.0f, 1.0f);
-        mainShader.setVec3("spotlight.ambient", glm::vec3(0.0));
-        mainShader.setVec3("spotlight.diffuse", glm::vec3(0.0));
-        mainShader.setVec3("spotlight.specular", glm::vec3(0.0));
-        mainShader.setFloat("spotlight.constant", 1.0f);
-        mainShader.setFloat("spotlight.linear", 0.09f);
-        mainShader.setFloat("spotlight.quadratic", 0.032f);
-
-        // material properties
-        mainShader.setFloat("material.shininess", 32.0f);
-
-        // set projection/view
-        mainShader.setMat4("projection", projection);
-        mainShader.setMat4("view", view);
-
-        // render the loaded model (backpack)
+        shader.use();
         glm::mat4 model = glm::mat4(1.0f);
-        model = glm::translate(model, glm::vec3(0.0f, 0.0f, 0.0f));
-        model = glm::scale(model, glm::vec3(1.0f, 1.0f, 1.0f));
-        mainShader.setMat4("model", model);
-        ourModel.Draw(mainShader);
-
-        // render the loaded model (lantern)
+        glm::mat4 view = camera.GetViewMatrix();
+        glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 100.0f);
+        shader.setMat4("view", view);
+        shader.setMat4("projection", projection);
+        // cubes
+        glBindVertexArray(cubeVAO);
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, cubeTexture); 	
+        model = glm::translate(model, glm::vec3(-1.0f, 0.0f, -1.0f));
+        shader.setMat4("model", model);
+        glDrawArrays(GL_TRIANGLES, 0, 36);
         model = glm::mat4(1.0f);
-        float angle = glfwGetTime() * glm::radians(45.0f);
-        model = glm::translate(model, pointLightPositions[0]);
-        model = glm::scale(model, glm::vec3(1.0f, 1.0f, 1.0f));
-        model = glm::rotate(model, angle, glm::vec3(0.0f, 1.0f, 0.0f));
-        mainShader.setMat4("model", model);
-        lantern.Draw(mainShader);
+        model = glm::translate(model, glm::vec3(2.0f, 0.0f, 0.0f));
+        shader.setMat4("model", model);
+        glDrawArrays(GL_TRIANGLES, 0, 36);
+        // floor
+        glBindVertexArray(planeVAO);
+        glBindTexture(GL_TEXTURE_2D, floorTexture);
+        shader.setMat4("model", glm::mat4(1.0f));
+        glDrawArrays(GL_TRIANGLES, 0, 6);
+        glBindVertexArray(0);
 
-        // render lantern to trace floors
-        model = glm::mat4(1.0f);
-        model = glm::translate(model, pointLightPositions[1]);
-        model = glm::scale(model, glm::vec3(1.0f, 1.0f, 1.0f));
-        mainShader.setMat4("model", model);
-        lantern.Draw(mainShader);
+        // now bind back to default framebuffer and draw a quad plane with the attached fraembuffer color texture
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        glDisable(GL_DEPTH_TEST); // disable so screen-space quad isn't dicarded
+        // clear buffers * unneeded when creating mirror
+        // glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
+        // glClear(GL_COLOR_BUFFER_BIT);
 
-        // render the loaded model (floor)
-        glm::vec3 floorPos = glm::vec3(0.0f, -3.0f, 0.0f);
-        glm::vec3 floorDims = floor.Get0MeshDimensions();
-
-        model = glm::mat4(1.0f);
-        model = glm::translate(model, floorPos);
-        model = glm::scale(model, glm::vec3(1.0f, 1.0f, 1.0f));
-        mainShader.setMat4("model", model);
-        floor.Draw(mainShader);
-
-        // render multiple floors
-        for (unsigned int i = 0; i < floorMult; ++i) {
-            model = glm::mat4(1.0f);
-            model = glm::translate(model, floorPos - (glm::vec3((float)i) * glm::vec3(0.0f, 0.0f, floorDims.z)));
-            model = glm::scale(model, glm::vec3(1.0f, 1.0f, 1.0f));
-            mainShader.setMat4("model", model);
-            floor.Draw(mainShader);
-        }
+        screenShader[shaderSelector].use();
+        glBindVertexArray(quadVAO);
+        glBindTexture(GL_TEXTURE_2D, textureColorBuffer);
+        glDrawArrays(GL_TRIANGLES, 0, 6);
 
         // glfw: swap buffers and poll IO events (keys pressed/released, mouse moved etc.)
         // -------------------------------------------------------------------------------
         glfwSwapBuffers(window);
         glfwPollEvents();
     }
+
+    // cleanup
+    // -------
+    glDeleteVertexArrays(1, &cubeVAO);
+    glDeleteVertexArrays(1, &planeVAO);
+    glDeleteVertexArrays(1, &quadVAO);
+    glDeleteBuffers(1, &cubeVBO);
+    glDeleteBuffers(1, &planeVBO);
+    glDeleteBuffers(1, &quadVBO);
+    glDeleteRenderbuffers(1, &rbo);
+    glDeleteFramebuffers(1, &fbo);
 
     // glfw: terminate, clearing all previously allocated GLFW resources.
     // ------------------------------------------------------------------
@@ -274,6 +355,14 @@ void processInput(GLFWwindow *window)
         camera.ProcessKeyboard(LEFT, deltaTime);
     if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
         camera.ProcessKeyboard(RIGHT, deltaTime);
+    if (glfwGetKey(window, GLFW_KEY_Q) == GLFW_PRESS)
+        qHeld = true;
+    if (qHeld && glfwGetKey(window, GLFW_KEY_Q) == GLFW_RELEASE) {
+        qHeld = false;
+        shaderSelector++;
+        if (shaderSelector > numScreenShaders)
+            shaderSelector = 0;
+    }
 }
 
 // glfw: whenever the window size changed (by OS or user resize) this callback function executes
@@ -313,4 +402,43 @@ void mouse_callback(GLFWwindow* window, double xposIn, double yposIn)
 void scroll_callback(GLFWwindow* window, double xoffset, double yoffset)
 {
     camera.ProcessMouseScroll(static_cast<float>(yoffset));
+}
+
+// utility function for loading a 2D texture from file
+// ---------------------------------------------------
+unsigned int loadTexture(char const *path)
+{
+    unsigned int textureID;
+    glGenTextures(1, &textureID);
+
+    int width, height, nrComponents;
+    unsigned char *data = stbi_load(path, &width, &height, &nrComponents, 0);
+    if (data)
+    {
+        GLenum format;
+        if (nrComponents == 1)
+            format = GL_RED;
+        else if (nrComponents == 3)
+            format = GL_RGB;
+        else if (nrComponents == 4)
+            format = GL_RGBA;
+
+        glBindTexture(GL_TEXTURE_2D, textureID);
+        glTexImage2D(GL_TEXTURE_2D, 0, format, width, height, 0, format, GL_UNSIGNED_BYTE, data);
+        glGenerateMipmap(GL_TEXTURE_2D);
+
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+        stbi_image_free(data);
+    }
+    else
+    {
+        std::cout << "Texture failed to load at path: " << path << std::endl;
+        stbi_image_free(data);
+    }
+
+    return textureID;
 }
