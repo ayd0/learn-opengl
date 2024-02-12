@@ -20,6 +20,7 @@ void framebuffer_size_callback(GLFWwindow* window, int width, int height);
 void mouse_callback(GLFWwindow* window, double xpos, double ypos);
 void scroll_callback(GLFWwindow* window, double xoffset, double yoffset);
 void processInput(GLFWwindow *window);
+unsigned int loadTexture(char const *path, bool alpha);
 
 // settings
 const unsigned int SCR_WIDTH = 1600;
@@ -86,8 +87,6 @@ int main()
         return -1;
     }
 
-    // tell stb_image.h to flip loaded texture's on the y-axis (before loading model).
-    stbi_set_flip_vertically_on_load(true);
 
     // configure global opengl state
     // -----------------------------
@@ -98,10 +97,21 @@ int main()
     // -------------------------
     Shader mainShader("../shaders/3.3.lighting_maps.vs", "../shaders/3.3.models.fs");
     Shader borderShader("../shaders/stencil-border.vs", "../shaders/stencil-border.fs");
+    Shader alphaShader("../shaders/basic.vs", "../shaders/alpha.fs");
+    Shader blendingShader("../shaders/basic.vs", "../shaders/blend.fs");
 
     // shader properties
     // -----------------
     mainShader.use();
+
+    // load textures
+    // -------------
+    unsigned int grassTexture = loadTexture("../resources/textures/grass.png", true);
+    unsigned int windowTexture = loadTexture("../resources/textures/blending_transparent_window.png", true);
+    unsigned int windowTextureAlt = loadTexture("../resources/textures/blending_transparent_window_alt.png", true);
+
+    // tell stb_image.h to flip loaded texture's on the y-axis (before loading model).
+    stbi_set_flip_vertically_on_load(true);
 
     // load models
     // -----------
@@ -112,7 +122,50 @@ int main()
     // draw in wireframe
     // glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
 
+    float transparentVertices[] = {
+        // positions         // texture Coords (swapped y coordinates because texture is flipped upside down)
+        0.0f,  0.5f,  0.0f,  0.0f,  0.0f,
+        0.0f, -0.5f,  0.0f,  0.0f,  1.0f,
+        1.0f, -0.5f,  0.0f,  1.0f,  1.0f,
+
+        0.0f,  0.5f,  0.0f,  0.0f,  0.0f,
+        1.0f, -0.5f,  0.0f,  1.0f,  1.0f,
+        1.0f,  0.5f,  0.0f,  1.0f,  0.0f
+    };
+
+    // transparent VAO
+    unsigned int transparentVAO, transparentVBO;
+    glGenVertexArrays(1, &transparentVAO);
+    glGenBuffers(1, &transparentVBO);
+    glBindVertexArray(transparentVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, transparentVBO);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(transparentVertices), transparentVertices, GL_STATIC_DRAW);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)(3 * sizeof(float)));
+    glBindVertexArray(0);
+
+    // position all vegetation
+    // -----------------------
+    vector<glm::vec3> vegetationPositions 
+    {
+        glm::vec3(-1.5f, -2.3f, -0.48f),
+        glm::vec3( 1.5f, -2.3f, 0.51f),
+        glm::vec3( 0.0f, -2.3f, 0.7f),
+        glm::vec3(-0.3f, -2.3f, -2.3f),
+        glm::vec3 (0.5f, -2.3f, -0.6f)
+    };
+    //
+    // position all windows
+    // ------------------------
+    vector<glm::vec3> windowPositions = {
+        glm::vec3( 0.0f, 0.0f, -6.0f),
+        glm::vec3( -4.0f, 0.0f, -9.0f),
+    };  
+
     // position all pointlights
+    // ------------------------
     glm::vec3 pointLightPositions[] = {
         glm::vec3( 2.0f, 2.0f, -3.0f),
         glm::vec3( 0.0f, 2.0f, 0.0f),
@@ -173,7 +226,6 @@ int main()
         pointLightPositions[0].z = cos(glfwGetTime()) * 3.5f;
 
         const unsigned int floorMult = 20;
-        // pointLightPositions[1].z = -abs(cos(glfwGetTime() * .5f) * floorMult * 3);
         pointLightPositions[1] = glm::vec3(0.0f, 5.0f, -10.0f);
 
         // shader properties
@@ -266,6 +318,22 @@ int main()
             }
         }
 
+        // render vegetation
+        // -----------------
+        alphaShader.use();
+        alphaShader.setMat4("projection", projection);
+        alphaShader.setMat4("view", view);
+        glBindVertexArray(transparentVAO);
+        glBindTexture(GL_TEXTURE_2D, grassTexture);
+        for (unsigned int i = 0; i < vegetationPositions.size(); ++i) {
+            model = glm::mat4(1.0f);
+            model = glm::translate(model, vegetationPositions[i]);
+            alphaShader.setMat4("model", model);
+            glDrawArrays(GL_TRIANGLES, 0, 6);
+        }
+
+        mainShader.use();
+        
         // configure stencil test state
         // ----------------------------
         // replace with 1 if both stencil and depth test succeed
@@ -307,6 +375,39 @@ int main()
 
             mainShader.use();
         }
+
+        // render windows
+        // --------------
+        // enable blending
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+        // sort by distance for render ordering 
+        std::map<float, glm::vec3> sorted;
+        for (unsigned int i = 0; i < windowPositions.size(); ++i) {
+            float distance = glm::length(camera.Position - windowPositions[i]);
+            sorted[distance] = windowPositions[i];
+        }
+
+        // setup shader props
+        blendingShader.use();
+        blendingShader.setMat4("projection", projection);
+        blendingShader.setMat4("view", view);
+        glBindVertexArray(transparentVAO);
+        glBindTexture(GL_TEXTURE_2D, windowTexture);
+
+        // iterate and render windows
+        for (std::map<float, glm::vec3>::reverse_iterator it = sorted.rbegin(); it != sorted.rend(); ++it) {
+            model = glm::mat4(1.0f);
+            model = glm::translate(model, it->second);
+            model = glm::scale(model, glm::vec3(3.0f, 5.0f, 3.0f));
+            blendingShader.setMat4("model", model);
+            glDrawArrays(GL_TRIANGLES, 0, 6);
+        }
+
+        // cleanup
+        glDisable(GL_BLEND);
+        mainShader.use();
 
         // render ImGui window
         // -------------------
@@ -447,4 +548,48 @@ void mouse_callback(GLFWwindow* window, double xposIn, double yposIn)
 void scroll_callback(GLFWwindow* window, double xoffset, double yoffset)
 {
     camera.ProcessMouseScroll(static_cast<float>(yoffset));
+}
+
+// utility function for loading a 2D texture from file
+// ---------------------------------------------------
+unsigned int loadTexture(char const *path, bool alpha=false)
+{
+    unsigned int textureID;
+    glGenTextures(1, &textureID);
+
+    int width, height, nrComponents;
+    unsigned char *data = stbi_load(path, &width, &height, &nrComponents, 0);
+    if (data)
+    {
+        GLenum format;
+        if (nrComponents == 1)
+            format = GL_RED;
+        else if (nrComponents == 3)
+            format = GL_RGB;
+        else if (nrComponents == 4)
+            format = GL_RGBA;
+
+        glBindTexture(GL_TEXTURE_2D, textureID);
+        glTexImage2D(GL_TEXTURE_2D, 0, format, width, height, 0, format, GL_UNSIGNED_BYTE, data);
+        glGenerateMipmap(GL_TEXTURE_2D);
+
+        if (alpha) {
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        } else {
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+        }
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+        stbi_image_free(data);
+    }
+    else
+    {
+        std::cout << "Texture failed to load at path: " << path << std::endl;
+        stbi_image_free(data);
+    }
+
+    return textureID;
 }
