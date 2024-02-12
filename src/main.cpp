@@ -15,6 +15,15 @@
 
 #include <iostream>
 
+void applyStencilBorder(
+    glm::mat4 &model,
+    glm::mat4 &projection,
+    glm::mat4 &view,
+    glm::vec3 pos,
+    Shader &shader,
+    Shader &border,
+    Model &shape
+);
 void setPointLight(Shader &shader, int index, glm::vec3 position, glm::vec3 color);
 void framebuffer_size_callback(GLFWwindow* window, int width, int height);
 void mouse_callback(GLFWwindow* window, double xpos, double ypos);
@@ -115,9 +124,10 @@ int main()
 
     // load models
     // -----------
-    Model ourModel("../resources/models/backpack/backpack.obj");
+    Model backpack("../resources/models/backpack/backpack.obj");
     Model lantern("../resources/models/japanese-lamp/JapaneseLamp.obj");
     Model floor("../resources/models/tile-floor/tile-floor.obj");
+    Model sphere("../resources/models/tile-ball/tile-ball.obj");
 
     // draw in wireframe
     // glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
@@ -169,6 +179,13 @@ int main()
     glm::vec3 pointLightPositions[] = {
         glm::vec3( 2.0f, 2.0f, -3.0f),
         glm::vec3( 0.0f, 2.0f, 0.0f),
+    };  
+
+    // position all spheres
+    // --------------------
+    vector<glm::vec3> spherePositions = {
+        glm::vec3( 3.0f, 0.0f, -12.0f),
+        glm::vec3( -3.0f, 0.0f, -16.0f),
     };  
 
     // ImGui implementation
@@ -341,48 +358,21 @@ int main()
             glDrawArrays(GL_TRIANGLES, 0, 6);
         }
 
+        // cleanup
         mainShader.use();
         
-        // configure stencil test state
-        // ----------------------------
-        // replace with 1 if both stencil and depth test succeed
-        if (stenBorder) {
-            glStencilOp(GL_KEEP, stenReplace ? GL_REPLACE : GL_KEEP, GL_REPLACE);
-            glStencilFunc(GL_ALWAYS, 1, 0xFF);
-            glStencilMask(0xFF);
-        }
-
-        // render the loaded model (backpack)
+        // render backpack
+        // ---------------
         model = glm::mat4(1.0f);
-        model = glm::translate(model, glm::vec3(0.0f, 0.0f, 0.0f));
         model = glm::scale(model, glm::vec3(1.0f, 1.0f, 1.0f));
-        mainShader.setMat4("model", model);
-        ourModel.Draw(mainShader);
+        applyStencilBorder(model, projection, view, glm::vec3(0.0f), mainShader, borderShader, backpack);
 
-        if (stenBorder) {
-            // ESP
-            glDisable(GL_DEPTH_TEST);
-            // second pass: draw upscaled backpack buffer
-            glStencilFunc(GL_NOTEQUAL, 1, 0xFF);
-            // disable writing to stencil buffer
-            glStencilMask(0x00);
-            borderShader.use();
-            borderShader.setMat4("projection", projection);
-            borderShader.setMat4("view", view);
+        // render spheres
+        // --------------
+        for (glm::vec3 spherePos : spherePositions) {
             model = glm::mat4(1.0f);
-            model = glm::translate(model, glm::vec3(0.0f, 0.0f, 0.0f));
-            model = glm::scale(model, glm::vec3(1.02f, 1.02f, 1.02f));
-            borderShader.setMat4("model", model);
-            ourModel.Draw(borderShader);
-
-            // reset stencil params
-            glStencilMask(0xFF);
-            glStencilFunc(GL_ALWAYS, 1, 0xFF);
-
-            // re-enable depth test
-            glEnable(GL_DEPTH_TEST);
-
-            mainShader.use();
+            model = glm::scale(model, glm::vec3(1.0f));
+            applyStencilBorder(model, projection, view, spherePos, mainShader, borderShader, sphere);
         }
 
         // render windows
@@ -418,6 +408,16 @@ int main()
         glDisable(GL_BLEND);
         mainShader.use();
 
+        // render spheres
+        // --------------
+        for (glm::vec3 spherePos : spherePositions) {
+            model = glm::mat4(1.0f);
+            model = glm::translate(model, spherePos);
+            model = glm::scale(model, glm::vec3(1.0f));
+            mainShader.setMat4("model", model);
+            sphere.Draw(mainShader);
+        }
+
         // render ImGui window
         // -------------------
         ImGui::Begin("Debug Panel");
@@ -452,6 +452,57 @@ int main()
     // ------------------------------------------------------------------
     glfwTerminate();
     return 0;
+}
+
+// stencil border mapping
+// ----------------------
+void applyStencilBorder(
+    glm::mat4 &model,
+    glm::mat4 &projection,
+    glm::mat4 &view,
+    glm::vec3 pos,
+    Shader &shader,
+    Shader &border,
+    Model &shape
+) {
+        // configure stencil test state
+        // ----------------------------
+        // replace with 1 if both stencil and depth test succeed
+        if (stenBorder) {
+            glStencilOp(GL_KEEP, stenReplace ? GL_REPLACE : GL_KEEP, GL_REPLACE);
+            glStencilFunc(GL_ALWAYS, 1, 0xFF);
+            glStencilMask(0xFF);
+        }
+
+        // render the loaded model (shape)
+        model = glm::translate(model, pos);
+        shader.setMat4("model", model);
+        shape.Draw(shader);
+
+        if (stenBorder) {
+            // ESP
+            glDisable(GL_DEPTH_TEST);
+            // second pass: draw upscaled shape buffer
+            glStencilFunc(GL_NOTEQUAL, 1, 0xFF);
+            // disable writing to stencil buffer
+            glStencilMask(0x00);
+            border.use();
+            border.setMat4("projection", projection);
+            border.setMat4("view", view);
+            model = glm::mat4(1.0f);
+            model = glm::translate(model, pos);
+            model = glm::scale(model, glm::vec3(1.02f, 1.02f, 1.02f));
+            border.setMat4("model", model);
+            shape.Draw(border);
+
+            // reset stencil params
+            glStencilMask(0xFF);
+            glStencilFunc(GL_ALWAYS, 1, 0xFF);
+
+            // re-enable depth test, cleanup
+            glEnable(GL_DEPTH_TEST);
+            shader.use();
+        }
 }
 
 // render point lights
