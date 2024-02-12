@@ -48,12 +48,13 @@ in vec3 FragPos;
 in vec3 Normal;  
 in vec2 TexCoords;
   
-uniform vec3 viewPos;
 uniform Material material;
 uniform DirLight dirLight;
 uniform PointLight pointLights[NR_POINT_LIGHTS];
 uniform Spotlight spotlight;
 uniform sampler2D texture_emissive1;
+uniform vec3 viewPos;
+uniform vec3 emissiveMult;
 
 vec3 CalcDirLight(DirLight light, vec3 normal, vec3 viewDir);
 vec3 CalcPointLights(PointLight light, vec3 normal, vec3 fragPos, vec3 viewDir);
@@ -70,17 +71,14 @@ void main()
 
     // point lights
     for(int i = 0; i < NR_POINT_LIGHTS; i++)
-      result += CalcPointLights(pointLights[i], norm, FragPos, viewDir);
+        result += CalcPointLights(pointLights[i], norm, FragPos, viewDir);
 
     // spotlight
     result += CalcSpotlight(spotlight, norm, FragPos, viewDir);
 
-    // emissive light
+    // emissive
     vec4 emissiveColor = texture(texture_emissive1, TexCoords);
-    if (emissiveColor.rgb != vec3(0.0))
-    {
-        result += emissiveColor.rgb;
-    }
+    result += emissiveColor.rgb * emissiveMult;
 
     FragColor = vec4(result, 1.0);
 } 

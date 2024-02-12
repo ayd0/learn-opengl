@@ -203,6 +203,8 @@ int main()
         mainShader.setMat4("model", model);
         ourModel.Draw(mainShader);
 
+        mainShader.setVec3("emissiveMult", glm::vec3(1.0));
+
         // render the loaded model (lantern)
         model = glm::mat4(1.0f);
         float angle = glfwGetTime() * glm::radians(45.0f);

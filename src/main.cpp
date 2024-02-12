@@ -15,7 +15,7 @@
 
 #include <iostream>
 
-void renderPointLight(Shader &shader, int index, glm::vec3 position, glm::vec3 color);
+void setPointLight(Shader &shader, int index, glm::vec3 position, glm::vec3 color);
 void framebuffer_size_callback(GLFWwindow* window, int width, int height);
 void mouse_callback(GLFWwindow* window, double xpos, double ypos);
 void scroll_callback(GLFWwindow* window, double xoffset, double yoffset);
@@ -88,10 +88,12 @@ int main()
     // configure global opengl state
     // -----------------------------
     glEnable(GL_DEPTH_TEST);
+    glEnable(GL_STENCIL_TEST);
 
     // build and compile shaders
     // -------------------------
     Shader mainShader("../shaders/3.3.lighting_maps.vs", "../shaders/3.3.models.fs");
+    Shader borderShader("../shaders/stencil-border.vs", "../shaders/stencil-border.fs");
 
     // shader properties
     // -----------------
@@ -123,6 +125,8 @@ int main()
 
     // ImGui globals
     float dirColorG[3] = { 1.0f, 1.0f, 1.0f };
+    float plc1[3] = { 1.0f, 1.0f, 1.0f };
+    float plc2[3] = { 1.0f, 1.0f, 1.0f };
 
     // render loop
     // -----------
@@ -141,7 +145,7 @@ int main()
         // render
         // ------
         glClearColor(0.05f, 0.05f, 0.05f, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 
         // create ImGui frame
         // ------------------
@@ -153,7 +157,7 @@ int main()
         mainShader.use();
 
         // view/projection transformations
-        glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 100.0f);
+        glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 1000.0f);
         glm::mat4 view = camera.GetViewMatrix();
 
         // light properties
@@ -164,7 +168,7 @@ int main()
         pointLightPositions[0].x = sin(glfwGetTime()) * 3.5f;
         pointLightPositions[0].z = cos(glfwGetTime()) * 3.5f;
 
-        const unsigned int floorMult = 200;
+        const unsigned int floorMult = 20;
         // pointLightPositions[1].z = -abs(cos(glfwGetTime() * .5f) * floorMult * 3);
         pointLightPositions[1] = glm::vec3(0.0f, 5.0f, -10.0f);
 
@@ -177,8 +181,8 @@ int main()
         mainShader.setVec3("dirLight.diffuse", dirColor * 0.2f);
         mainShader.setVec3("dirLight.specular", dirColor * 0.5f);
         // point light shaders
-        renderPointLight(mainShader, 0, pointLightPositions[0], lampColor);
-        renderPointLight(mainShader, 1, pointLightPositions[1], lampColor);
+        setPointLight(mainShader, 0, pointLightPositions[0], glm::vec3(plc1[0], plc1[1], plc1[2]));
+        setPointLight(mainShader, 1, pointLightPositions[1], glm::vec3(plc2[0], plc2[1], plc2[2]));
         // spotlight shader
         mainShader.setVec3("spotlight.position", camera.Position);
         mainShader.setVec3("spotlight.direction", camera.Front);
@@ -204,20 +208,17 @@ int main()
         mainShader.setMat4("projection", projection);
         mainShader.setMat4("view", view);
 
-        // render the loaded model (backpack)
-        glm::mat4 model = glm::mat4(1.0f);
-        model = glm::translate(model, glm::vec3(0.0f, 0.0f, 0.0f));
-        model = glm::scale(model, glm::vec3(1.0f, 1.0f, 1.0f));
-        mainShader.setMat4("model", model);
-        ourModel.Draw(mainShader);
+        // set stencil mask to not write
+        glStencilMask(0x00);
 
         // render the loaded model (lantern)
-        model = glm::mat4(1.0f);
+        glm::mat4 model = glm::mat4(1.0f);
         float angle = glfwGetTime() * glm::radians(45.0f);
         model = glm::translate(model, pointLightPositions[0]);
         model = glm::scale(model, glm::vec3(1.0f, 1.0f, 1.0f));
         model = glm::rotate(model, angle, glm::vec3(0.0f, 1.0f, 0.0f));
         mainShader.setMat4("model", model);
+        mainShader.setVec3("emissiveMult", glm::vec3(plc1[0], plc1[1], plc1[2]));
         lantern.Draw(mainShader);
 
         // render lantern to trace floors
@@ -225,6 +226,7 @@ int main()
         model = glm::translate(model, pointLightPositions[1]);
         model = glm::scale(model, glm::vec3(1.0f, 1.0f, 1.0f));
         mainShader.setMat4("model", model);
+        mainShader.setVec3("emissiveMult", glm::vec3(plc2[0], plc2[1], plc2[2]));
         lantern.Draw(mainShader);
 
         // render the loaded model (floor)
@@ -240,11 +242,63 @@ int main()
         // render multiple floors
         for (unsigned int i = 0; i < floorMult; ++i) {
             model = glm::mat4(1.0f);
-            model = glm::translate(model, floorPos - (glm::vec3((float)i) * glm::vec3(0.0f, 0.0f, floorDims.z)));
+            model = glm::translate(model, floorPos + (glm::vec3(0.0f, 0.0f, -floorDims.z * (float)i)));
             model = glm::scale(model, glm::vec3(1.0f, 1.0f, 1.0f));
             mainShader.setMat4("model", model);
             floor.Draw(mainShader);
+            for (unsigned int j = 1; j < floorMult / 3; ++j) {
+                // first lateral
+                model = glm::mat4(1.0f);
+                model = glm::translate(model, floorPos + (glm::vec3(floorDims.x * (float)j, 0.0f, -floorDims.z * (float)i)));
+                model = glm::scale(model, glm::vec3(1.0f, 1.0f, 1.0f));
+                mainShader.setMat4("model", model);
+                floor.Draw(mainShader);
+                // second lateral
+                model = glm::mat4(1.0f);
+                model = glm::translate(model, floorPos + (glm::vec3(-floorDims.x * (float)j, 0.0f, -floorDims.z * (float)i)));
+                model = glm::scale(model, glm::vec3(1.0f, 1.0f, 1.0f));
+                mainShader.setMat4("model", model);
+                floor.Draw(mainShader);
+            }
         }
+
+        // configure stencil test state
+        // ----------------------------
+        // replace with 1 if both stencil and depth test succeed
+        glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
+        glStencilFunc(GL_ALWAYS, 1, 0xFF);
+        glStencilMask(0xFF);
+
+        // render the loaded model (backpack)
+        model = glm::mat4(1.0f);
+        model = glm::translate(model, glm::vec3(0.0f, 0.0f, 0.0f));
+        model = glm::scale(model, glm::vec3(1.0f, 1.0f, 1.0f));
+        mainShader.setMat4("model", model);
+        ourModel.Draw(mainShader);
+
+        // ESP
+        glDisable(GL_DEPTH_TEST);
+        // second pass: draw upscaled backpack buffer
+        glStencilFunc(GL_NOTEQUAL, 1, 0xFF);
+        // disable writing to stencil buffer
+        glStencilMask(0x00);
+        borderShader.use();
+        borderShader.setMat4("projection", projection);
+        borderShader.setMat4("view", view);
+        model = glm::mat4(1.0f);
+        model = glm::translate(model, glm::vec3(0.0f, 0.0f, 0.0f));
+        model = glm::scale(model, glm::vec3(1.02f, 1.02f, 1.02f));
+        borderShader.setMat4("model", model);
+        ourModel.Draw(borderShader);
+
+        // reset stencil params
+        glStencilMask(0xFF);
+        glStencilFunc(GL_ALWAYS, 1, 0xFF);
+
+        // re-enable depth test
+        glEnable(GL_DEPTH_TEST);
+
+        mainShader.use();
 
         // render ImGui window
         // -------------------
@@ -253,6 +307,9 @@ int main()
         ImGui::Text("Directional Light");
         ImGui::ColorEdit3("Color", dirColorG);
         // ImGui::CheckBOx("Name", &val);
+        ImGui::Text("Point Light");
+        ImGui::ColorEdit3("Emissive Texture 1", plc1);
+        ImGui::ColorEdit3("Emissive Texture 2", plc2);
         ImGui::SliderFloat("Speed Mult", &speedMult, 1.0f, 50.0f);
         ImGui::End();
 
@@ -279,7 +336,7 @@ int main()
 
 // render point lights
 // -------------------
-void renderPointLight(Shader &shader, int index, glm::vec3 position, glm::vec3 color) { 
+void setPointLight(Shader &shader, int index, glm::vec3 position, glm::vec3 color) { 
         std::string uniform = "pointLights[" + std::to_string(index) + "].";
         shader.setVec3(uniform + "position", position);
         shader.setVec3(uniform + "ambient", color * glm::vec3(0.05f, 0.05f, 0.05f));
