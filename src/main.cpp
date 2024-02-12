@@ -12,6 +12,7 @@
 #include "../include/shader.h"
 #include "../include/camera.h"
 #include "../include/model.h"
+#include "../include/inputHandler.h"
 
 #include <iostream>
 
@@ -28,7 +29,6 @@ void setPointLight(Shader &shader, int index, glm::vec3 position, glm::vec3 colo
 void framebuffer_size_callback(GLFWwindow* window, int width, int height);
 void mouse_callback(GLFWwindow* window, double xpos, double ypos);
 void scroll_callback(GLFWwindow* window, double xoffset, double yoffset);
-void processInput(GLFWwindow *window);
 unsigned int loadTexture(char const *path, bool alpha);
 
 // settings
@@ -46,13 +46,7 @@ float deltaTime = 0.0f;
 float lastFrame = 0.0f;
 
 // input
-bool qHeld = false;
-bool fHeld;
-bool shiftHeld = false;
-float speedMult = 3.0f;
-bool firstToggle = true;
-bool cursorDisabled = true;
-bool flashlightOn = false;
+InputState inputState;
 
 // shaders
 bool stenBorder = false;
@@ -214,7 +208,7 @@ int main()
 
         // input
         // -----
-        processInput(window);
+        processInput(window, camera, inputState, deltaTime);
 
         // render
         // ------
@@ -261,7 +255,7 @@ int main()
         mainShader.setVec3("spotlight.direction", camera.Front);
         mainShader.setFloat("spotlight.cutoff", glm::cos(glm::radians(12.5f)));
         mainShader.setFloat("spotlight.outerCutoff", glm::cos(glm::radians(17.5f)));
-        if (flashlightOn) {
+        if (inputState.flashlightOn) {
             mainShader.setVec3("spotlight.ambient", 0.1f, 0.1f, 0.1f);
             mainShader.setVec3("spotlight.diffuse", 0.8f, 0.8f, 0.8f);
             mainShader.setVec3("spotlight.specular", 1.0f, 1.0f, 1.0f);
@@ -430,7 +424,7 @@ int main()
         ImGui::Text("Point Light");
         ImGui::ColorEdit3("Emissive 1", plc1);
         ImGui::ColorEdit3("Emissive 2", plc2);
-        ImGui::SliderFloat("Speed Mult", &speedMult, 1.0f, 50.0f);
+        ImGui::SliderFloat("Speed Mult", &inputState.speedMult, 1.0f, 50.0f);
         ImGui::End();
 
         ImGui::Render();
@@ -518,58 +512,6 @@ void setPointLight(Shader &shader, int index, glm::vec3 position, glm::vec3 colo
     shader.setFloat(uniform + "quadratic", 0.032f);
 }
 
-// process all input: query GLFW whether relevant keys are pressed/released this frame and react accordingly
-// ---------------------------------------------------------------------------------------------------------
-void processInput(GLFWwindow *window)
-{
-    // utility binds
-    if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
-        glfwSetWindowShouldClose(window, true);
-    // movement binds
-    if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
-        camera.ProcessKeyboard(FORWARD, shiftHeld ? deltaTime * speedMult : deltaTime);
-    if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
-        camera.ProcessKeyboard(BACKWARD, shiftHeld ? deltaTime * speedMult : deltaTime);
-    if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
-        camera.ProcessKeyboard(LEFT, shiftHeld ? deltaTime * speedMult : deltaTime);
-    if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
-        camera.ProcessKeyboard(RIGHT, shiftHeld ? deltaTime * speedMult : deltaTime);
-    if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS)
-        camera.ProcessKeyboard(UP, shiftHeld ? deltaTime * speedMult : deltaTime);
-    if (glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS)
-        camera.ProcessKeyboard(DOWN, shiftHeld ? deltaTime * speedMult : deltaTime);
-    // modifier binds
-    if (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS)
-        shiftHeld = true;
-    if (shiftHeld && glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_RELEASE)
-        shiftHeld = false;
-    if (glfwGetKey(window, GLFW_KEY_Q) == GLFW_PRESS) {
-        firstToggle = false;
-        if (!qHeld) {
-            cursorDisabled = !cursorDisabled;
-            if (cursorDisabled) {
-                glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
-            } else {
-                glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
-            }
-            qHeld = true;
-        }
-    } else {
-        qHeld = false;
-    }
-    // tool binds
-    if (glfwGetKey(window, GLFW_KEY_F) == GLFW_PRESS) {
-        firstToggle = false;
-        if (!fHeld) {
-            flashlightOn = !flashlightOn;
-            fHeld = true;
-        }
-    } else {
-        fHeld = false;
-    }
-
-}
-
 // glfw: whenever the window size changed (by OS or user resize) this callback function executes
 // ---------------------------------------------------------------------------------------------
 void framebuffer_size_callback(GLFWwindow* window, int width, int height)
@@ -599,7 +541,7 @@ void mouse_callback(GLFWwindow* window, double xposIn, double yposIn)
     lastX = xpos;
     lastY = ypos;
 
-    if (!cursorDisabled || firstToggle)
+    if (!inputState.cursorDisabled || inputState.firstToggle)
         camera.ProcessMouseMovement(xoffset, yoffset);
 }
 
