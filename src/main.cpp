@@ -44,6 +44,10 @@ bool firstToggle = true;
 bool cursorDisabled = true;
 bool flashlightOn = false;
 
+// shaders
+bool stenBorder = false;
+bool stenReplace = false;
+
 int main()
 {
     // glfw: initialize and configure
@@ -104,10 +108,10 @@ int main()
     Model ourModel("../resources/models/backpack/backpack.obj");
     Model lantern("../resources/models/japanese-lamp/JapaneseLamp.obj");
     Model floor("../resources/models/tile-floor/tile-floor.obj");
-    
+
     // draw in wireframe
     // glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-    
+
     // position all pointlights
     glm::vec3 pointLightPositions[] = {
         glm::vec3( 2.0f, 2.0f, -3.0f),
@@ -265,9 +269,11 @@ int main()
         // configure stencil test state
         // ----------------------------
         // replace with 1 if both stencil and depth test succeed
-        glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
-        glStencilFunc(GL_ALWAYS, 1, 0xFF);
-        glStencilMask(0xFF);
+        if (stenBorder) {
+            glStencilOp(GL_KEEP, stenReplace ? GL_REPLACE : GL_KEEP, GL_REPLACE);
+            glStencilFunc(GL_ALWAYS, 1, 0xFF);
+            glStencilMask(0xFF);
+        }
 
         // render the loaded model (backpack)
         model = glm::mat4(1.0f);
@@ -276,46 +282,50 @@ int main()
         mainShader.setMat4("model", model);
         ourModel.Draw(mainShader);
 
-        // ESP
-        glDisable(GL_DEPTH_TEST);
-        // second pass: draw upscaled backpack buffer
-        glStencilFunc(GL_NOTEQUAL, 1, 0xFF);
-        // disable writing to stencil buffer
-        glStencilMask(0x00);
-        borderShader.use();
-        borderShader.setMat4("projection", projection);
-        borderShader.setMat4("view", view);
-        model = glm::mat4(1.0f);
-        model = glm::translate(model, glm::vec3(0.0f, 0.0f, 0.0f));
-        model = glm::scale(model, glm::vec3(1.02f, 1.02f, 1.02f));
-        borderShader.setMat4("model", model);
-        ourModel.Draw(borderShader);
+        if (stenBorder) {
+            // ESP
+            glDisable(GL_DEPTH_TEST);
+            // second pass: draw upscaled backpack buffer
+            glStencilFunc(GL_NOTEQUAL, 1, 0xFF);
+            // disable writing to stencil buffer
+            glStencilMask(0x00);
+            borderShader.use();
+            borderShader.setMat4("projection", projection);
+            borderShader.setMat4("view", view);
+            model = glm::mat4(1.0f);
+            model = glm::translate(model, glm::vec3(0.0f, 0.0f, 0.0f));
+            model = glm::scale(model, glm::vec3(1.02f, 1.02f, 1.02f));
+            borderShader.setMat4("model", model);
+            ourModel.Draw(borderShader);
 
-        // reset stencil params
-        glStencilMask(0xFF);
-        glStencilFunc(GL_ALWAYS, 1, 0xFF);
+            // reset stencil params
+            glStencilMask(0xFF);
+            glStencilFunc(GL_ALWAYS, 1, 0xFF);
 
-        // re-enable depth test
-        glEnable(GL_DEPTH_TEST);
+            // re-enable depth test
+            glEnable(GL_DEPTH_TEST);
 
-        mainShader.use();
+            mainShader.use();
+        }
 
         // render ImGui window
         // -------------------
         ImGui::Begin("Debug Panel");
         ImGui::Text("FPS: %.1f", ImGui::GetIO().Framerate);
+        ImGui::Checkbox("ESP", &stenBorder);
+        ImGui::SameLine();
+        ImGui::Checkbox("Border", &stenReplace);
         ImGui::Text("Directional Light");
         ImGui::ColorEdit3("Color", dirColorG);
-        // ImGui::CheckBOx("Name", &val);
         ImGui::Text("Point Light");
-        ImGui::ColorEdit3("Emissive Texture 1", plc1);
-        ImGui::ColorEdit3("Emissive Texture 2", plc2);
+        ImGui::ColorEdit3("Emissive 1", plc1);
+        ImGui::ColorEdit3("Emissive 2", plc2);
         ImGui::SliderFloat("Speed Mult", &speedMult, 1.0f, 50.0f);
         ImGui::End();
 
         ImGui::Render();
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
-        
+
         // glfw: swap buffers and poll IO events (keys pressed/released, mouse moved etc.)
         // -------------------------------------------------------------------------------
         glfwSwapBuffers(window);
@@ -337,23 +347,24 @@ int main()
 // render point lights
 // -------------------
 void setPointLight(Shader &shader, int index, glm::vec3 position, glm::vec3 color) { 
-        std::string uniform = "pointLights[" + std::to_string(index) + "].";
-        shader.setVec3(uniform + "position", position);
-        shader.setVec3(uniform + "ambient", color * glm::vec3(0.05f, 0.05f, 0.05f));
-        shader.setVec3(uniform + "diffuse", color * glm::vec3(0.8f, 0.8f, 0.8f));
-        shader.setVec3(uniform + "specular", color * glm::vec3(1.0f, 1.0f, 1.0f));
-        shader.setFloat(uniform + "constant", 1.0f);
-        shader.setFloat(uniform + "linear", 0.09f);
-        shader.setFloat(uniform + "quadratic", 0.032f);
+    std::string uniform = "pointLights[" + std::to_string(index) + "].";
+    shader.setVec3(uniform + "position", position);
+    shader.setVec3(uniform + "ambient", color * glm::vec3(0.05f, 0.05f, 0.05f));
+    shader.setVec3(uniform + "diffuse", color * glm::vec3(0.8f, 0.8f, 0.8f));
+    shader.setVec3(uniform + "specular", color * glm::vec3(1.0f, 1.0f, 1.0f));
+    shader.setFloat(uniform + "constant", 1.0f);
+    shader.setFloat(uniform + "linear", 0.09f);
+    shader.setFloat(uniform + "quadratic", 0.032f);
 }
 
 // process all input: query GLFW whether relevant keys are pressed/released this frame and react accordingly
 // ---------------------------------------------------------------------------------------------------------
 void processInput(GLFWwindow *window)
 {
+    // utility binds
     if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
         glfwSetWindowShouldClose(window, true);
-
+    // movement binds
     if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
         camera.ProcessKeyboard(FORWARD, shiftHeld ? deltaTime * speedMult : deltaTime);
     if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
@@ -362,6 +373,11 @@ void processInput(GLFWwindow *window)
         camera.ProcessKeyboard(LEFT, shiftHeld ? deltaTime * speedMult : deltaTime);
     if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
         camera.ProcessKeyboard(RIGHT, shiftHeld ? deltaTime * speedMult : deltaTime);
+    if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS)
+        camera.ProcessKeyboard(UP, shiftHeld ? deltaTime * speedMult : deltaTime);
+    if (glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS)
+        camera.ProcessKeyboard(DOWN, shiftHeld ? deltaTime * speedMult : deltaTime);
+    // modifier binds
     if (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS)
         shiftHeld = true;
     if (shiftHeld && glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_RELEASE)
@@ -380,6 +396,7 @@ void processInput(GLFWwindow *window)
     } else {
         qHeld = false;
     }
+    // tool binds
     if (glfwGetKey(window, GLFW_KEY_F) == GLFW_PRESS) {
         firstToggle = false;
         if (!fHeld) {
