@@ -22,7 +22,7 @@
 bool stenBorder = false;
 
 // function temps
-void getMouseCoords(GLFWwindow *window, glm::mat4 &projection, glm::mat4 &view, glm::vec3 &spherePos); 
+void handleMouseEvents(GLFWwindow *window, glm::mat4 &projection, glm::mat4 &view); 
 void iterateDetectSpheres();
 bool testRaySphereIntersect(
         const glm::vec3 &rayOrigin,
@@ -78,7 +78,10 @@ glm::vec3 ray_world(1.0f);
 bool stenReplace = false;
 
 // objects
-vector<Sphere> sphereList = {};
+vector<Sphere> sphereList = {
+    { glm::vec3( 3.0f, 0.0f, -12.0f ), glm::vec3(1.0f) }, 
+    { glm::vec3( -3.0f, 0.0f, -16.0f ), glm::vec3(1.0f) }
+};
 
 int main()
 {
@@ -203,13 +206,6 @@ int main()
         glm::vec3( 0.0f, 2.0f, 0.0f),
     };  
 
-    // position all spheres
-    // --------------------
-    vector<glm::vec3> spherePositions = {
-        glm::vec3( 3.0f, 0.0f, -12.0f),
-        glm::vec3( -3.0f, 0.0f, -16.0f),
-    };  
-
     // ImGui implementation
     // --------------------
     IMGUI_CHECKVERSION();
@@ -257,7 +253,7 @@ int main()
         glm::mat4 view = camera.GetViewMatrix();
         
         // handle mouse events
-        getMouseCoords(window, projection, view, spherePositions[0]);
+        handleMouseEvents(window, projection, view);
 
         // light properties
         // glm::vec3 dirColor = glm::vec3(0.94f, 0.6f, 0.5f);
@@ -394,16 +390,11 @@ int main()
 
         // render spheres
         // --------------
-        for (unsigned int i = 0; i < spherePositions.size(); ++i) {
+        for (unsigned int i = 0; i < sphereList.size(); ++i) {
             model = glm::mat4(1.0f);
             glm::vec3 scaleMod = glm::vec3(1.0f);
-            model = glm::scale(model, scaleMod);
-            sphereList.push_back(Sphere{
-                    spherePositions[i],
-                    sphere.Get0MeshDimensions() * scaleMod, 
-                    false
-                    });
-            applyStencilBorder(model, projection, view, spherePositions[i], mainShader, borderShader, sphere, sphereList[i].selected);
+            model = glm::scale(model, glm::vec3(1.0f));
+            applyStencilBorder(model, projection, view, sphereList[i].position, mainShader, borderShader, sphere, sphereList[i].selected);
         }
 
         // render windows
@@ -489,7 +480,7 @@ int main()
 
 // hacky implementation of ray cast detection, fix and replace!
 // ------------------------------------------------------------
-void getMouseCoords(GLFWwindow *window, glm::mat4 &projection, glm::mat4 &view, glm::vec3 &spherePos) {
+void handleMouseEvents(GLFWwindow *window, glm::mat4 &projection, glm::mat4 &view) {
     if (inputState.cursorDisabled && glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS)
     {
         // convert mouse coord to NDC
