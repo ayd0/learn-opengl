@@ -285,6 +285,12 @@ int main()
         mainShader.setVec3("emissiveMult", glm::vec3(plc2[0], plc2[1], plc2[2]));
         lantern.Draw(mainShader);
 
+        // enable face culling for floors
+        // ------------------------------
+        glEnable(GL_CULL_FACE);
+        glCullFace(GL_BACK);
+        glFrontFace(GL_CCW);
+
         // render the loaded model (floor)
         glm::vec3 floorPos = glm::vec3(0.0f, -3.0f, 0.0f);
         glm::vec3 floorDims = floor.Get0MeshDimensions();
@@ -317,6 +323,9 @@ int main()
                 floor.Draw(mainShader);
             }
         }
+
+        // cleanup
+        glDisable(GL_CULL_FACE);
 
         // render vegetation
         // -----------------
