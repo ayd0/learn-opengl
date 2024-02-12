@@ -18,7 +18,18 @@
 
 #include <iostream>
 
-void checkMouseCoords(GLFWwindow *window, glm::mat4 &projection, glm::mat4 &view); 
+// shaders hoisted
+bool stenBorder = false;
+
+// function temps
+void getMouseCoords(GLFWwindow *window, glm::mat4 &projection, glm::mat4 &view, glm::vec3 &spherePos); 
+void iterateDetectSpheres();
+bool testRaySphereIntersect(
+        const glm::vec3 &rayOrigin,
+        const glm::vec3 &rayDirection,
+        const glm::vec3 &sphereCenter,
+        float sphereRadius
+        ); 
 void applyStencilBorder(
     glm::mat4 &model,
     glm::mat4 &projection,
@@ -26,13 +37,21 @@ void applyStencilBorder(
     glm::vec3 pos,
     Shader &shader,
     Shader &border,
-    Model &shape
+    Model &shape,
+    bool applyBorder=stenBorder
 );
 void setPointLight(Shader &shader, int index, glm::vec3 position, glm::vec3 color);
 void framebuffer_size_callback(GLFWwindow* window, int width, int height);
 void mouse_callback(GLFWwindow* window, double xpos, double ypos);
 void scroll_callback(GLFWwindow* window, double xoffset, double yoffset);
 unsigned int loadTexture(char const *path, bool alpha);
+
+// type defs
+struct Sphere {
+    glm::vec3 position;
+    glm::vec3 dimensions;
+    bool selected = false;
+};
 
 // settings
 const unsigned int SCR_WIDTH = 1600;
@@ -50,10 +69,16 @@ float lastFrame = 0.0f;
 
 // input
 InputState inputState;
+glm::vec3 ray_nds(1.0f);
+glm::vec4 ray_clip(1.0f);
+glm::vec4 ray_eye(1.0f);
+glm::vec3 ray_world(1.0f);
 
 // shaders
-bool stenBorder = false;
 bool stenReplace = false;
+
+// objects
+vector<Sphere> sphereList = {};
 
 int main()
 {
@@ -232,7 +257,7 @@ int main()
         glm::mat4 view = camera.GetViewMatrix();
         
         // handle mouse events
-        checkMouseCoords(window, projection, view);
+        getMouseCoords(window, projection, view, spherePositions[0]);
 
         // light properties
         // glm::vec3 dirColor = glm::vec3(0.94f, 0.6f, 0.5f);
@@ -369,10 +394,16 @@ int main()
 
         // render spheres
         // --------------
-        for (glm::vec3 spherePos : spherePositions) {
+        for (unsigned int i = 0; i < spherePositions.size(); ++i) {
             model = glm::mat4(1.0f);
-            model = glm::scale(model, glm::vec3(1.0f));
-            applyStencilBorder(model, projection, view, spherePos, mainShader, borderShader, sphere);
+            glm::vec3 scaleMod = glm::vec3(1.0f);
+            model = glm::scale(model, scaleMod);
+            sphereList.push_back(Sphere{
+                    spherePositions[i],
+                    sphere.Get0MeshDimensions() * scaleMod, 
+                    false
+                    });
+            applyStencilBorder(model, projection, view, spherePositions[i], mainShader, borderShader, sphere, sphereList[i].selected);
         }
 
         // render windows
@@ -408,29 +439,31 @@ int main()
         glDisable(GL_BLEND);
         mainShader.use();
 
-        // render spheres
-        // --------------
-        for (glm::vec3 spherePos : spherePositions) {
-            model = glm::mat4(1.0f);
-            model = glm::translate(model, spherePos);
-            model = glm::scale(model, glm::vec3(1.0f));
-            mainShader.setMat4("model", model);
-            sphere.Draw(mainShader);
-        }
-
         // render ImGui window
         // -------------------
         ImGui::Begin("Debug Panel");
         ImGui::Text("FPS: %.1f", ImGui::GetIO().Framerate);
+        // stencil borders
         ImGui::Checkbox("ESP", &stenBorder);
         ImGui::SameLine();
         ImGui::Checkbox("Border", &stenReplace);
+        // directional light
         ImGui::Text("Directional Light");
         ImGui::ColorEdit3("Color", dirColorG);
+        // point lights
         ImGui::Text("Point Light");
         ImGui::ColorEdit3("Emissive 1", plc1);
         ImGui::ColorEdit3("Emissive 2", plc2);
+        // speed mult
         ImGui::SliderFloat("Speed Mult", &inputState.speedMult, 1.0f, 50.0f);
+        // mouse coords
+        ImGui::Text("mouse: x: %f, y: %f", lastX, lastY);
+        ImGui::Text("ray_nds: x: %f, y: %f, z: %f", ray_nds.x, ray_nds.y, ray_nds.z);
+        ImGui::Text("ray_clip: x: %f, y: %f, z: %f", ray_clip.x, ray_clip.y, ray_clip.z);
+        ImGui::Text("ray_eye: x: %f, y: %f, z: %f", ray_eye.x, ray_eye.y, ray_eye.z);
+        ImGui::Text("ray_world: x: %f, y: %f, z: %f", ray_world.x, ray_world.y, ray_world.z);
+        // camera pos
+        ImGui::Text("Camera Pos: x: %f, y: %f, z: %f", camera.Position.x, camera.Position.y, camera.Position.z);
         ImGui::End();
 
         ImGui::Render();
@@ -454,28 +487,62 @@ int main()
     return 0;
 }
 
-void checkMouseCoords(GLFWwindow *window, glm::mat4 &projection, glm::mat4 &view) {
+// hacky implementation of ray cast detection, fix and replace!
+// ------------------------------------------------------------
+void getMouseCoords(GLFWwindow *window, glm::mat4 &projection, glm::mat4 &view, glm::vec3 &spherePos) {
     if (inputState.cursorDisabled && glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS)
     {
-        cout << "Mouse coords: (" << lastX << ", " << lastY << ")" << endl;
         // convert mouse coord to NDC
         float x = (2.0f * lastX) / SCR_WIDTH - 1.0f;
         float y = 1.0f - (2.0f * lastY) / SCR_HEIGHT;
         float z = -1.0f; // forward
-        glm::vec3 ray_nds = glm::vec3(x, y, z);
-        cout << "NDC mouse coords: (" << ray_nds.x << ", " << ray_nds.y << ", " << ray_nds.z << ")" << endl;
-        // convert NDC to homogenous clip coords
-        glm::vec4 ray_clip = glm::vec4(ray_nds.x, ray_nds.y, ray_nds.z, 1.0f);
-        // convert clip coords to eye coords
-        glm::vec4 ray_eye = glm::inverse(projection) * ray_clip;
-        ray_eye = glm::vec4(ray_eye.x, ray_eye.y, -1.0f, 0.0f);
-        cout << "mouse eye coords: (" << ray_eye.x << ", " << ray_eye.y << ", " << ray_eye.z << ")" << endl;
-        // convert eye to world coords
-        glm::vec3 ray_world = glm::vec3(glm::inverse(view) * ray_eye);
-        ray_world = glm::normalize(ray_world);
-        cout << "mouse world coords: (" << ray_world.x << ", " << ray_world.y << ", " << ray_world.z << ")" << endl;
-    }
+        ray_nds = glm::vec3(x, y, z);
+        
+        // convert NDC to normal clip coords
+        ray_clip = glm::vec4(ray_nds.x, ray_nds.y, ray_nds.z, 1.0f);
 
+        // convert clip coords to eye coords
+        ray_eye = glm::inverse(projection) * ray_clip;
+        ray_eye = glm::vec4(ray_eye.x, ray_eye.y, -1.0f, 0.0f);
+        
+        // convert eye to world coords
+        ray_world = glm::vec3(glm::inverse(view) * ray_eye);
+        ray_world = glm::normalize(ray_world);
+
+        iterateDetectSpheres();
+    }
+}
+
+// iterate through spheres to check for ray intersects
+// ---------------------------------------------------
+void iterateDetectSpheres() {
+    for (Sphere &iSphere : sphereList) {
+        float sphereRadius= glm::length(iSphere.dimensions) / 2.0f;
+        if (testRaySphereIntersect(camera.Position, ray_world, iSphere.position, sphereRadius))
+            iSphere.selected = true;
+        else 
+            iSphere.selected = false;
+    }
+}
+
+
+// test if camera ray interesects sphere
+// -------------------------------------
+bool testRaySphereIntersect(
+        const glm::vec3 &rayOrigin,
+        const glm::vec3 &rayDirection,
+        const glm::vec3 &sphereCenter,
+        float sphereRadius
+        ) {
+    glm::vec3 L = sphereCenter - rayOrigin;
+    float tca = glm::dot(L, rayDirection);
+    // if tca is negative, ray is pointing away from sphere
+    if (tca < 0) return false;
+    float d2 = glm::dot(L, L) - tca * tca;
+    // If d^2 > rad^2, ray doesn't intersect with sphere
+    float rad2 = sphereRadius * sphereRadius;
+    if (d2 > rad2) return false;
+    return true;
 }
 
 // stencil border mapping
@@ -487,12 +554,13 @@ void applyStencilBorder(
     glm::vec3 pos,
     Shader &shader,
     Shader &border,
-    Model &shape
+    Model &shape,
+    bool applyBorder
 ) {
         // configure stencil test state
         // ----------------------------
         // replace with 1 if both stencil and depth test succeed
-        if (stenBorder) {
+        if (applyBorder) {
             glStencilOp(GL_KEEP, stenReplace ? GL_REPLACE : GL_KEEP, GL_REPLACE);
             glStencilFunc(GL_ALWAYS, 1, 0xFF);
             glStencilMask(0xFF);
@@ -503,7 +571,7 @@ void applyStencilBorder(
         shader.setMat4("model", model);
         shape.Draw(shader);
 
-        if (stenBorder) {
+        if (applyBorder) {
             // ESP
             glDisable(GL_DEPTH_TEST);
             // second pass: draw upscaled shape buffer
