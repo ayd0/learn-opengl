@@ -12,10 +12,13 @@
 #include "../include/shader.h"
 #include "../include/camera.h"
 #include "../include/model.h"
+
 #include "../include/inputHandler.h"
+#include "../include/utils.h"
 
 #include <iostream>
 
+void checkMouseCoords(GLFWwindow *window, glm::mat4 &projection, glm::mat4 &view); 
 void applyStencilBorder(
     glm::mat4 &model,
     glm::mat4 &projection,
@@ -227,6 +230,9 @@ int main()
         // view/projection transformations
         glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 1000.0f);
         glm::mat4 view = camera.GetViewMatrix();
+        
+        // handle mouse events
+        checkMouseCoords(window, projection, view);
 
         // light properties
         // glm::vec3 dirColor = glm::vec3(0.94f, 0.6f, 0.5f);
@@ -448,6 +454,30 @@ int main()
     return 0;
 }
 
+void checkMouseCoords(GLFWwindow *window, glm::mat4 &projection, glm::mat4 &view) {
+    if (inputState.cursorDisabled && glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS)
+    {
+        cout << "Mouse coords: (" << lastX << ", " << lastY << ")" << endl;
+        // convert mouse coord to NDC
+        float x = (2.0f * lastX) / SCR_WIDTH - 1.0f;
+        float y = 1.0f - (2.0f * lastY) / SCR_HEIGHT;
+        float z = -1.0f; // forward
+        glm::vec3 ray_nds = glm::vec3(x, y, z);
+        cout << "NDC mouse coords: (" << ray_nds.x << ", " << ray_nds.y << ", " << ray_nds.z << ")" << endl;
+        // convert NDC to homogenous clip coords
+        glm::vec4 ray_clip = glm::vec4(ray_nds.x, ray_nds.y, ray_nds.z, 1.0f);
+        // convert clip coords to eye coords
+        glm::vec4 ray_eye = glm::inverse(projection) * ray_clip;
+        ray_eye = glm::vec4(ray_eye.x, ray_eye.y, -1.0f, 0.0f);
+        cout << "mouse eye coords: (" << ray_eye.x << ", " << ray_eye.y << ", " << ray_eye.z << ")" << endl;
+        // convert eye to world coords
+        glm::vec3 ray_world = glm::vec3(glm::inverse(view) * ray_eye);
+        ray_world = glm::normalize(ray_world);
+        cout << "mouse world coords: (" << ray_world.x << ", " << ray_world.y << ", " << ray_world.z << ")" << endl;
+    }
+
+}
+
 // stencil border mapping
 // ----------------------
 void applyStencilBorder(
@@ -550,48 +580,4 @@ void mouse_callback(GLFWwindow* window, double xposIn, double yposIn)
 void scroll_callback(GLFWwindow* window, double xoffset, double yoffset)
 {
     camera.ProcessMouseScroll(static_cast<float>(yoffset));
-}
-
-// utility function for loading a 2D texture from file
-// ---------------------------------------------------
-unsigned int loadTexture(char const *path, bool alpha=false)
-{
-    unsigned int textureID;
-    glGenTextures(1, &textureID);
-
-    int width, height, nrComponents;
-    unsigned char *data = stbi_load(path, &width, &height, &nrComponents, 0);
-    if (data)
-    {
-        GLenum format;
-        if (nrComponents == 1)
-            format = GL_RED;
-        else if (nrComponents == 3)
-            format = GL_RGB;
-        else if (nrComponents == 4)
-            format = GL_RGBA;
-
-        glBindTexture(GL_TEXTURE_2D, textureID);
-        glTexImage2D(GL_TEXTURE_2D, 0, format, width, height, 0, format, GL_UNSIGNED_BYTE, data);
-        glGenerateMipmap(GL_TEXTURE_2D);
-
-        if (alpha) {
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-        } else {
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-        }
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-
-        stbi_image_free(data);
-    }
-    else
-    {
-        std::cout << "Texture failed to load at path: " << path << std::endl;
-        stbi_image_free(data);
-    }
-
-    return textureID;
 }
