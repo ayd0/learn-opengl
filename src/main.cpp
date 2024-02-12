@@ -23,13 +23,15 @@ bool stenBorder = false;
 
 // function temps
 void handleMouseEvents(GLFWwindow *window, glm::mat4 &projection, glm::mat4 &view); 
-void iterateDetectSpheres();
+void iterateDetectSpheres(glm::mat4 &view, glm::mat4 &projection);
 bool testRaySphereIntersect(
         const glm::vec3 &rayOrigin,
         const glm::vec3 &rayDirection,
         const glm::vec3 &sphereCenter,
-        float sphereRadius
-        ); 
+        float sphereRadius,
+        glm::mat4 &view,
+        glm::mat4 &projection
+        );
 void applyStencilBorder(
     glm::mat4 &model,
     glm::mat4 &projection,
@@ -54,8 +56,8 @@ struct Sphere {
 };
 
 // settings
-const unsigned int SCR_WIDTH = 1600;
-const unsigned int SCR_HEIGHT = 900;
+unsigned int SCR_WIDTH = 1600;
+unsigned int SCR_HEIGHT = 900;
 
 // camera
 Camera camera(glm::vec3(0.0f, 0.0f, 3.0f));
@@ -245,15 +247,9 @@ int main()
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
 
-        // don't forget to enable shader before setting uniforms
-        mainShader.use();
-
         // view/projection transformations
         glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 1000.0f);
         glm::mat4 view = camera.GetViewMatrix();
-        
-        // handle mouse events
-        handleMouseEvents(window, projection, view);
 
         // light properties
         // glm::vec3 dirColor = glm::vec3(0.94f, 0.6f, 0.5f);
@@ -265,6 +261,9 @@ int main()
 
         const unsigned int floorMult = 20;
         pointLightPositions[1] = glm::vec3(0.0f, 5.0f, -10.0f);
+
+        // enable shader before setting uniforms
+        mainShader.use();
 
         // shader properties
         mainShader.setVec3("viewPos", camera.Position);
@@ -459,6 +458,10 @@ int main()
 
         ImGui::Render();
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+        
+        // handle mouse events for sphere detection
+        // ----------------------------------------
+        handleMouseEvents(window, projection, view);
 
         // glfw: swap buffers and poll IO events (keys pressed/released, mouse moved etc.)
         // -------------------------------------------------------------------------------
@@ -500,22 +503,21 @@ void handleMouseEvents(GLFWwindow *window, glm::mat4 &projection, glm::mat4 &vie
         ray_world = glm::vec3(glm::inverse(view) * ray_eye);
         ray_world = glm::normalize(ray_world);
 
-        iterateDetectSpheres();
+        iterateDetectSpheres(view, projection);
     }
 }
 
 // iterate through spheres to check for ray intersects
 // ---------------------------------------------------
-void iterateDetectSpheres() {
+void iterateDetectSpheres(glm::mat4 &view, glm::mat4 &projection) {
     for (Sphere &iSphere : sphereList) {
         float sphereRadius= glm::length(iSphere.dimensions) / 2.0f;
-        if (testRaySphereIntersect(camera.Position, ray_world, iSphere.position, sphereRadius))
+        if (testRaySphereIntersect(camera.Position, ray_world, iSphere.position, sphereRadius, view, projection))
             iSphere.selected = true;
         else 
             iSphere.selected = false;
     }
 }
-
 
 // test if camera ray interesects sphere
 // -------------------------------------
@@ -523,7 +525,9 @@ bool testRaySphereIntersect(
         const glm::vec3 &rayOrigin,
         const glm::vec3 &rayDirection,
         const glm::vec3 &sphereCenter,
-        float sphereRadius
+        float sphereRadius,
+        glm::mat4 &view,
+        glm::mat4 &projection
         ) {
     glm::vec3 L = sphereCenter - rayOrigin;
     float tca = glm::dot(L, rayDirection);
@@ -533,7 +537,40 @@ bool testRaySphereIntersect(
     // If d^2 > rad^2, ray doesn't intersect with sphere
     float rad2 = sphereRadius * sphereRadius;
     if (d2 > rad2) return false;
-    return true;
+
+    // else, calculate point of intersection
+    float thc = sqrt(rad2 - d2);
+    float t0 = tca - thc; // closest intersection
+    float t1 = tca + thc; // farthest intersection
+
+    // ensure t0 is the closest positive intersection
+    if (t0 > t1) std::swap(t0, t1);
+    if (t0 < 0) {
+        t0 = t1; // if t0 is negative, use t1
+        if (t0 < 0) return false; // both negative, return false
+    }
+
+    // determine if object is obscured * TODO: Fix this mess, it doesn't work
+    // ----------------------------------------------------------------------
+    glm::vec3 intersectionPoint = rayOrigin + t0 * rayDirection;
+    glm::vec4 clipCoords = projection * view * glm::vec4(intersectionPoint, 1.0f);
+
+    // perform perspective division and viewport transformation
+    glm::vec3 ndc = glm::vec3(clipCoords) / clipCoords.w;
+    glm::vec2 screenCoords = {
+        (ndc.x + 1.0f) * 0.5f * SCR_WIDTH,
+        (1.0f - ndc.y) * 0.5f * SCR_HEIGHT
+    };
+
+    float depthAtPixel;
+    glReadPixels((int)screenCoords.x, (int)screenCoords.y, 1, 1, GL_DEPTH_COMPONENT, GL_FLOAT, &depthAtPixel);
+    std::cout << "Pixel Depth: " << depthAtPixel << endl; // DEBUG
+
+    float depthAtMouse;
+    glReadPixels(static_cast<int>(lastX), SCR_HEIGHT - static_cast<int>(lastY), 1, 1, GL_DEPTH_COMPONENT, GL_FLOAT, &depthAtMouse);
+    std::cout << "Mouse Depth: " << depthAtMouse << endl; // DEBUG
+
+    return depthAtMouse <= depthAtPixel;
 }
 
 // stencil border mapping
@@ -605,6 +642,8 @@ void setPointLight(Shader &shader, int index, glm::vec3 position, glm::vec3 colo
 // ---------------------------------------------------------------------------------------------
 void framebuffer_size_callback(GLFWwindow* window, int width, int height)
 {
+    SCR_WIDTH = width;
+    SCR_HEIGHT = height;
     // make sure the viewport matches the new window dimensions; note that width and 
     // height will be significantly larger than specified on retina displays.
     glViewport(0, 0, width, height);
