@@ -45,20 +45,19 @@ bool testRaySphereIntersect(
         glm::mat4 &projection
         );
 void applyStencilBorder(
-    glm::mat4 &model,
-    glm::mat4 &projection,
-    glm::mat4 &view,
-    glm::vec3 pos,
-    Shader &shader,
-    Shader &border,
-    Model &shape,
-    bool applyBorder=stenBorder
-);
+        glm::mat4 &model,
+        glm::mat4 &projection,
+        glm::mat4 &view,
+        glm::vec3 pos,
+        Shader &shader,
+        Shader &border,
+        Model &shape,
+        bool applyBorder=stenBorder
+        );
 void setPointLight(Shader &shader, int index, glm::vec3 position, glm::vec3 color);
 void framebuffer_size_callback(GLFWwindow* window, int width, int height);
 void mouse_callback(GLFWwindow* window, double xpos, double ypos);
 void scroll_callback(GLFWwindow* window, double xoffset, double yoffset);
-unsigned int loadTexture(char const *path, bool alpha);
 
 // type defs
 struct Sphere {
@@ -149,7 +148,8 @@ int main()
     Shader alphaShader("../shaders/basic.vs", "../shaders/alpha.fs");
     Shader blendingShader("../shaders/basic.vs", "../shaders/blend.fs");
     Shader lineShader("../shaders/very-basic.vs", "../shaders/cast-line.fs");
-
+    Shader pointShader("../shaders/very-basic.vs", "../shaders/pass-through.gs" ,"../shaders/cast-line.fs");
+    
     // shader properties
     // -----------------
     mainShader.use();
@@ -214,8 +214,8 @@ int main()
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
     glEnableVertexAttribArray(1);
     glBindVertexArray(0);
-    
-    // line VAO
+
+    // alt line VAO
     unsigned int altLineVAO, altLineVBO;
     glGenVertexArrays(1, &altLineVAO);
     glGenBuffers(1, &altLineVBO);
@@ -227,17 +227,35 @@ int main()
     glEnableVertexAttribArray(1);
     glBindVertexArray(0);
 
+    float points[] = {
+        -0.5f,  0.5f, // top-left
+        0.5f,  0.5f, // top-right
+        0.5f, -0.5f, // bottom-right
+        -0.5f, -0.5f  // bottom-left
+    };
+
+    unsigned int pointsVAO, pointsVBO;
+    glGenVertexArrays(1, &pointsVAO);
+    glGenBuffers(1, &pointsVBO);
+    glBindVertexArray(pointsVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, pointsVBO);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(points), points, GL_DYNAMIC_DRAW);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(1);
+    glBindVertexArray(0);
+    
     // position all vegetation
     // -----------------------
     vector<glm::vec3> vegetationPositions 
     {
         glm::vec3(-1.5f, -2.3f, -0.48f),
-        glm::vec3( 1.5f, -2.3f, 0.51f),
-        glm::vec3( 0.0f, -2.3f, 0.7f),
-        glm::vec3(-0.3f, -2.3f, -2.3f),
-        glm::vec3 (0.5f, -2.3f, -0.6f)
+            glm::vec3( 1.5f, -2.3f, 0.51f),
+            glm::vec3( 0.0f, -2.3f, 0.7f),
+            glm::vec3(-0.3f, -2.3f, -2.3f),
+            glm::vec3 (0.5f, -2.3f, -0.6f)
     };
-    
+
     // position all windows
     // ------------------------
     vector<glm::vec3> windowPositions = {
@@ -369,7 +387,6 @@ int main()
         // enable face culling for floors
         // ------------------------------
         glEnable(GL_CULL_FACE);
-        glCullFace(GL_BACK);
         glFrontFace(GL_CCW);
 
         // render the loaded model (floor)
@@ -439,7 +456,7 @@ int main()
             model = glm::scale(model, glm::vec3(1.0f));
             applyStencilBorder(model, projection, view, sphereList[i].position, mainShader, borderShader, sphere, sphereList[i].selected);
         }
-        
+
         // render lines
         // ------------
         // get length, update line vectors
@@ -453,6 +470,17 @@ int main()
         renderLines(altLineVertices, LINE_BUFFER_LIM, altLineVBO, altLineVAO, altLineUpdated, lineShader, projection, view, model);
         // cleanup
         mainShader.use();
+
+        // render points
+        // -------------
+        pointShader.use();
+        pointShader.setMat4("projection", projection);
+        pointShader.setMat4("view", view);
+        model = glm::mat4(1.0f);
+        model = glm::translate(model, glm::vec3(0.0f, 0.0f, 1.0f));
+        pointShader.setMat4("model", model);
+        glBindVertexArray(pointsVAO);
+        glDrawArrays(GL_POINTS, 0, 4);
 
         // render windows
         // --------------
@@ -521,7 +549,7 @@ int main()
 
         ImGui::Render();
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
-        
+
         // handle mouse events for sphere detection
         // ----------------------------------------
         handleMouseEvents(window, projection, view);
@@ -627,14 +655,14 @@ void handleMouseEvents(GLFWwindow *window, glm::mat4 &projection, glm::mat4 &vie
         float y = 1.0f - (2.0f * lastY) / SCR_HEIGHT;
         float z = -1.0f; // forward
         ray_nds = glm::vec3(x, y, z);
-        
+
         // convert NDC to normal clip coords
         ray_clip = glm::vec4(ray_nds.x, ray_nds.y, ray_nds.z, 1.0f);
 
         // convert clip coords to eye coords
         ray_eye = glm::inverse(projection) * ray_clip;
         ray_eye = glm::vec4(ray_eye.x, ray_eye.y, -1.0f, 0.0f);
-        
+
         // convert eye to world coords
         ray_world = glm::vec3(glm::inverse(view) * ray_eye);
         ray_world = glm::normalize(ray_world);
@@ -700,11 +728,9 @@ bool testRaySphereIntersect(
 
     float depthAtPixel;
     glReadPixels((int)screenCoords.x, (int)screenCoords.y, 1, 1, GL_DEPTH_COMPONENT, GL_FLOAT, &depthAtPixel);
-    std::cout << "Pixel Depth: " << depthAtPixel << endl; // DEBUG
 
     float depthAtMouse;
     glReadPixels(static_cast<int>(lastX), SCR_HEIGHT - static_cast<int>(lastY), 1, 1, GL_DEPTH_COMPONENT, GL_FLOAT, &depthAtMouse);
-    std::cout << "Mouse Depth: " << depthAtMouse << endl; // DEBUG
 
     return depthAtMouse <= depthAtPixel;
 }
@@ -712,53 +738,53 @@ bool testRaySphereIntersect(
 // stencil border mapping
 // ----------------------
 void applyStencilBorder(
-    glm::mat4 &model,
-    glm::mat4 &projection,
-    glm::mat4 &view,
-    glm::vec3 pos,
-    Shader &shader,
-    Shader &border,
-    Model &shape,
-    bool applyBorder
-) {
-        // configure stencil test state
-        // ----------------------------
-        // replace with 1 if both stencil and depth test succeed
-        if (applyBorder) {
-            glStencilOp(GL_KEEP, stenReplace ? GL_REPLACE : GL_KEEP, GL_REPLACE);
-            glStencilFunc(GL_ALWAYS, 1, 0xFF);
-            glStencilMask(0xFF);
-        }
+        glm::mat4 &model,
+        glm::mat4 &projection,
+        glm::mat4 &view,
+        glm::vec3 pos,
+        Shader &shader,
+        Shader &border,
+        Model &shape,
+        bool applyBorder
+        ) {
+    // configure stencil test state
+    // ----------------------------
+    // replace with 1 if both stencil and depth test succeed
+    if (applyBorder) {
+        glStencilOp(GL_KEEP, stenReplace ? GL_REPLACE : GL_KEEP, GL_REPLACE);
+        glStencilFunc(GL_ALWAYS, 1, 0xFF);
+        glStencilMask(0xFF);
+    }
 
-        // render the loaded model (shape)
+    // render the loaded model (shape)
+    model = glm::translate(model, pos);
+    shader.setMat4("model", model);
+    shape.Draw(shader);
+
+    if (applyBorder) {
+        // ESP
+        glDisable(GL_DEPTH_TEST);
+        // second pass: draw upscaled shape buffer
+        glStencilFunc(GL_NOTEQUAL, 1, 0xFF);
+        // disable writing to stencil buffer
+        glStencilMask(0x00);
+        border.use();
+        border.setMat4("projection", projection);
+        border.setMat4("view", view);
+        model = glm::mat4(1.0f);
         model = glm::translate(model, pos);
-        shader.setMat4("model", model);
-        shape.Draw(shader);
+        model = glm::scale(model, glm::vec3(1.02f, 1.02f, 1.02f));
+        border.setMat4("model", model);
+        shape.Draw(border);
 
-        if (applyBorder) {
-            // ESP
-            glDisable(GL_DEPTH_TEST);
-            // second pass: draw upscaled shape buffer
-            glStencilFunc(GL_NOTEQUAL, 1, 0xFF);
-            // disable writing to stencil buffer
-            glStencilMask(0x00);
-            border.use();
-            border.setMat4("projection", projection);
-            border.setMat4("view", view);
-            model = glm::mat4(1.0f);
-            model = glm::translate(model, pos);
-            model = glm::scale(model, glm::vec3(1.02f, 1.02f, 1.02f));
-            border.setMat4("model", model);
-            shape.Draw(border);
+        // reset stencil params
+        glStencilMask(0xFF);
+        glStencilFunc(GL_ALWAYS, 1, 0xFF);
 
-            // reset stencil params
-            glStencilMask(0xFF);
-            glStencilFunc(GL_ALWAYS, 1, 0xFF);
-
-            // re-enable depth test, cleanup
-            glEnable(GL_DEPTH_TEST);
-            shader.use();
-        }
+        // re-enable depth test, cleanup
+        glEnable(GL_DEPTH_TEST);
+        shader.use();
+    }
 }
 
 // render point lights
