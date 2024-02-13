@@ -22,6 +22,18 @@
 bool stenBorder = false;
 
 // function temps
+void renderLines(
+        vector<float> &lineVertices,
+        unsigned int LINE_BUFFER_LIM,
+        unsigned int lineVBO,
+        unsigned int lineVAO,
+        bool &lineUpdated,
+        Shader &lineShader,
+        glm::mat4 &projection,
+        glm::mat4 &view,
+        glm::mat4 &model);
+void updateLineVector(vector<float> &lineVertices, const unsigned int LINE_BUFFER_LIM, glm::vec3 lineBegin, glm::vec3 lineEnd, bool &lineUpdated);
+void updateLineState(vector<float> &lineVertices, vector<float> &altLineVertices, unsigned int LINE_BUFFER_LIM, bool &lineUpdated, bool &altLineUpdated);
 void handleMouseEvents(GLFWwindow *window, glm::mat4 &projection, glm::mat4 &view); 
 void iterateDetectSpheres(glm::mat4 &view, glm::mat4 &projection);
 bool testRaySphereIntersect(
@@ -58,6 +70,8 @@ struct Sphere {
 // settings
 unsigned int SCR_WIDTH = 1600;
 unsigned int SCR_HEIGHT = 900;
+float NEAR_PLANE = 0.1f;
+float FAR_PLANE = 1000.0f;
 
 // camera
 Camera camera(glm::vec3(0.0f, 0.0f, 3.0f));
@@ -123,7 +137,6 @@ int main()
         return -1;
     }
 
-
     // configure global opengl state
     // -----------------------------
     glEnable(GL_DEPTH_TEST);
@@ -135,6 +148,7 @@ int main()
     Shader borderShader("../shaders/stencil-border.vs", "../shaders/stencil-border.fs");
     Shader alphaShader("../shaders/basic.vs", "../shaders/alpha.fs");
     Shader blendingShader("../shaders/basic.vs", "../shaders/blend.fs");
+    Shader lineShader("../shaders/very-basic.vs", "../shaders/cast-line.fs");
 
     // shader properties
     // -----------------
@@ -183,6 +197,36 @@ int main()
     glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)(3 * sizeof(float)));
     glBindVertexArray(0);
 
+    vector<float> lineVertices = {};
+    vector<float> altLineVertices = {};
+    bool lineUpdated = false;
+    bool altLineUpdated = false;
+
+    // line VAO
+    const unsigned int LINE_BUFFER_LIM = 120;
+    unsigned int lineVAO, lineVBO;
+    glGenVertexArrays(1, &lineVAO);
+    glGenBuffers(1, &lineVBO);
+    glBindVertexArray(lineVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, lineVBO);
+    glBufferData(GL_ARRAY_BUFFER, LINE_BUFFER_LIM * sizeof(float), NULL, GL_DYNAMIC_DRAW);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(1);
+    glBindVertexArray(0);
+    
+    // line VAO
+    unsigned int altLineVAO, altLineVBO;
+    glGenVertexArrays(1, &altLineVAO);
+    glGenBuffers(1, &altLineVBO);
+    glBindVertexArray(altLineVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, altLineVBO);
+    glBufferData(GL_ARRAY_BUFFER, LINE_BUFFER_LIM * sizeof(float), NULL, GL_DYNAMIC_DRAW);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(1);
+    glBindVertexArray(0);
+
     // position all vegetation
     // -----------------------
     vector<glm::vec3> vegetationPositions 
@@ -193,7 +237,7 @@ int main()
         glm::vec3(-0.3f, -2.3f, -2.3f),
         glm::vec3 (0.5f, -2.3f, -0.6f)
     };
-    //
+    
     // position all windows
     // ------------------------
     vector<glm::vec3> windowPositions = {
@@ -248,7 +292,7 @@ int main()
         ImGui::NewFrame();
 
         // view/projection transformations
-        glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 1000.0f);
+        glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom), (float)SCR_WIDTH / (float)SCR_HEIGHT, NEAR_PLANE, FAR_PLANE);
         glm::mat4 view = camera.GetViewMatrix();
 
         // light properties
@@ -380,7 +424,7 @@ int main()
 
         // cleanup
         mainShader.use();
-        
+
         // render backpack
         // ---------------
         model = glm::mat4(1.0f);
@@ -395,6 +439,20 @@ int main()
             model = glm::scale(model, glm::vec3(1.0f));
             applyStencilBorder(model, projection, view, sphereList[i].position, mainShader, borderShader, sphere, sphereList[i].selected);
         }
+        
+        // render lines
+        // ------------
+        // get length, update line vectors
+        if (inputState.drawDebugLine) {
+            updateLineState(lineVertices, altLineVertices, LINE_BUFFER_LIM, lineUpdated, altLineUpdated);
+        }
+        lineShader.use();
+        lineShader.setBool("alt", true);
+        renderLines(lineVertices, LINE_BUFFER_LIM, lineVBO, lineVAO, lineUpdated, lineShader, projection, view, model);
+        lineShader.setBool("alt", false);
+        renderLines(altLineVertices, LINE_BUFFER_LIM, altLineVBO, altLineVAO, altLineUpdated, lineShader, projection, view, model);
+        // cleanup
+        mainShader.use();
 
         // render windows
         // --------------
@@ -446,7 +504,12 @@ int main()
         ImGui::ColorEdit3("Emissive 2", plc2);
         // speed mult
         ImGui::SliderFloat("Speed Mult", &inputState.speedMult, 1.0f, 50.0f);
+        if (ImGui::Button("Erase Debug Lines")) {
+            lineVertices.clear();
+            altLineVertices.clear();
+        }
         // mouse coords
+        ImGui::Text("Coordinates");
         ImGui::Text("mouse: x: %f, y: %f", lastX, lastY);
         ImGui::Text("ray_nds: x: %f, y: %f, z: %f", ray_nds.x, ray_nds.y, ray_nds.z);
         ImGui::Text("ray_clip: x: %f, y: %f, z: %f", ray_clip.x, ray_clip.y, ray_clip.z);
@@ -475,11 +538,84 @@ int main()
     ImGui_ImplGlfw_Shutdown();
     ImGui::DestroyContext();
 
+    // cleanup buffers
+    // ---------------
+    glDeleteVertexArrays(1, &transparentVAO); 
+    glDeleteBuffers(1, &transparentVBO);
+    glDeleteVertexArrays(1, &lineVAO); 
+    glDeleteBuffers(1, &lineVBO);
+    glDeleteVertexArrays(1, &altLineVAO); 
+    glDeleteBuffers(1, &altLineVBO);
+
     // glfw: terminate, clearing all previously allocated GLFW resources.
     // ------------------------------------------------------------------
     glfwTerminate();
     return 0;
 }
+
+void renderLines(
+        vector<float> &lineVertices,
+        unsigned int LINE_BUFFER_LIM,
+        unsigned int lineVBO,
+        unsigned int lineVAO,
+        bool &lineUpdated,
+        Shader &lineShader,
+        glm::mat4 &projection,
+        glm::mat4 &view,
+        glm::mat4 &model) {
+    // check limits and if changes made to buffer
+    if (lineUpdated && lineVertices.size() < LINE_BUFFER_LIM) {
+        glBindBuffer(GL_ARRAY_BUFFER, lineVBO); 
+        glBufferSubData(GL_ARRAY_BUFFER, 0, lineVertices.size() * sizeof(float), lineVertices.data());
+        lineUpdated = false;
+    }
+    // setup shader props
+    lineShader.setMat4("projection", projection);
+    lineShader.setMat4("view", view);
+    glBindVertexArray(lineVAO);
+
+    // iterate and render lines
+    model = glm::mat4(1.0f);
+    lineShader.setMat4("model", model);
+    glDrawArrays(GL_LINES, 0, lineVertices.size() / 3);
+}
+
+void updateLineVector(vector<float> &lineVertices, const unsigned int LINE_BUFFER_LIM, glm::vec3 lineBegin, glm::vec3 lineEnd, bool &lineUpdated) {
+    if (lineVertices.size() >= LINE_BUFFER_LIM - 6)
+        lineVertices.erase(lineVertices.begin(), lineVertices.begin() + 6);
+    lineVertices.push_back(lineBegin.x);
+    lineVertices.push_back(lineBegin.y);
+    lineVertices.push_back(lineBegin.z);
+    lineVertices.push_back(lineEnd.x);
+    lineVertices.push_back(lineEnd.y);
+    lineVertices.push_back(lineEnd.z);
+    lineUpdated = true;
+}
+
+void updateLineState(vector<float> &lineVertices, vector<float> &altLineVertices, unsigned int LINE_BUFFER_LIM, bool &lineUpdated, bool &altLineUpdated) {
+    // determine length
+    float depth; 
+    int x = SCR_WIDTH / 2;
+    int y = SCR_HEIGHT / 2;
+    // grab depth value from buffer at (x,y)
+    glReadPixels(x, y, 1, 1, GL_DEPTH_COMPONENT, GL_FLOAT, &depth);
+    // convert depth value to view space
+    float zNDC = depth * 2.0f - 1.0f; // convert from [0, 1] to [-1, 1]
+    float zView = (2.0f * NEAR_PLANE * FAR_PLANE) / (FAR_PLANE + NEAR_PLANE - zNDC * (FAR_PLANE - NEAR_PLANE));
+
+    // set length to depth
+    float length = abs(zView);
+
+    // push vertex data to vector
+    glm::vec3 lineBegin = camera.Position;
+    glm::vec3 lineEnd = lineBegin + camera.Front * length;
+    if (length < FAR_PLANE)
+        updateLineVector(lineVertices, LINE_BUFFER_LIM, lineBegin, lineEnd, lineUpdated);
+    else
+        updateLineVector(altLineVertices, LINE_BUFFER_LIM, lineBegin, lineEnd, altLineUpdated);
+    inputState.drawDebugLine = false;
+}
+
 
 // hacky implementation of ray cast detection, fix and replace!
 // ------------------------------------------------------------

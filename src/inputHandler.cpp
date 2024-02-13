@@ -47,4 +47,11 @@ void processInput(GLFWwindow *window, Camera &camera, InputState &inputState, fl
     } else {
         inputState.fHeld = false;
     }
+    // debug binds
+    if (glfwGetKey(window, GLFW_KEY_J) == GLFW_PRESS) 
+        inputState.jHeld = true;
+    if (inputState.jHeld && glfwGetKey(window, GLFW_KEY_J) == GLFW_RELEASE) {
+        inputState.jHeld = false;
+        inputState.drawDebugLine = true;
+    }
 }
