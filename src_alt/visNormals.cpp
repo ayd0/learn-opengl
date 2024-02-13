@@ -79,9 +79,14 @@ int main()
     // build and compile shaders
     // -------------------------
     Shader shader("../shaders/3.3.model_loading.vs", "../shaders/3.3.model_loading.fs");
+    Shader visNormShader("../shaders/vis-normals.vs", "../shaders/vis-normals.gs", "../shaders/vis-normals.fs");
     
     // tell stb_image.h to flip loaded texture's on the y-axis (before loading model).
     stbi_set_flip_vertically_on_load(true);
+
+    // import models
+    // -------------
+    Model backpack("../resources/models/backpack/backpack.obj");
 
     // render loop
     // -----------
@@ -105,7 +110,20 @@ int main()
         // view/projection transformations
         glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom), (float)SCR_WIDTH / (float)SCR_HEIGHT, NEAR_PLANE, FAR_PLANE);
         glm::mat4 view = camera.GetViewMatrix();
+        glm::mat4 model = glm::mat4(1.0f);
         
+        shader.use();
+        shader.setMat4("projection", projection);
+        shader.setMat4("view", view);
+        shader.setMat4("model", model);
+        shader.setFloat("time", glfwGetTime());
+        backpack.Draw(shader);
+        visNormShader.use();
+        visNormShader.setMat4("projection", projection);
+        visNormShader.setMat4("view", view);
+        visNormShader.setMat4("model", model);
+        backpack.Draw(visNormShader);
+
         // glfw: swap buffers and poll IO events (keys pressed/released, mouse moved etc.)
         // -------------------------------------------------------------------------------
         glfwSwapBuffers(window);
