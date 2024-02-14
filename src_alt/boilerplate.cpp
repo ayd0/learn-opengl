@@ -78,10 +78,26 @@ int main()
 
     // build and compile shaders
     // -------------------------
-    Shader shader("../shaders/3.3.model_loading.vs", "../shaders/3.3.model_loading.fs");
+    Shader shader("../shaders/generic/3.3.model_loading.vs", "../shaders/generic/3.3.model_loading.fs");
+    
+    /*
+    // generic VAO
+    unsigned int VAO, VBO;
+    glGenVertexArrays(1, &VAO);
+    glGenBuffers(1, &VBO);
+    glBindVertexArray(VAO);
+    glBindBuffer(GL_ARRAY_BUFFER, VBO);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)(3 * sizeof(float)));
+    glBindVertexArray(0);
+    */
     
     // tell stb_image.h to flip loaded texture's on the y-axis (before loading model).
     stbi_set_flip_vertically_on_load(true);
+
 
     // render loop
     // -----------

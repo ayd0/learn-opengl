@@ -143,11 +143,11 @@ int main()
 
     // build and compile shaders
     // -------------------------
-    Shader mainShader("../shaders/3.3.lighting_maps.vs", "../shaders/3.3.models.fs");
-    Shader borderShader("../shaders/stencil-border.vs", "../shaders/stencil-border.fs");
-    Shader alphaShader("../shaders/basic.vs", "../shaders/alpha.fs");
-    Shader blendingShader("../shaders/basic.vs", "../shaders/blend.fs");
-    Shader lineShader("../shaders/very-basic.vs", "../shaders/cast-line.fs");
+    Shader mainShader("../shaders/generic/3.3.lighting_maps.vs", "../shaders/3.3.models.fs");
+    Shader borderShader("../shaders/utils/stencil-border.vs", "../shaders/utils/stencil-border.fs");
+    Shader alphaShader("../shaders/generic/basic.vs", "../shaders/generic/alpha.fs");
+    Shader blendingShader("../shaders/generic/basic.vs", "../shaders/generic/blend.fs");
+    Shader lineShader("../shaders/generic/very-basic.vs", "../shaders/utils/cast-line.fs");
     
     // shader properties
     // -----------------
