@@ -82,7 +82,7 @@ int main()
     // build and compile shaders
     // -------------------------
     Shader planetShader("../shaders/generic/3.3.lighting_maps.vs", "../shaders/generic/instanced-lighting-maps.fs");
-    Shader asteroidsShader("../shaders/generic/instanced-lighting-maps.vs", "../shaders/generic/instanced-lighting-maps.fs");
+    Shader asteroidsShader("../shaders/generic/instanced-lighting-maps.vs", "../shaders/generic/blinn-phong.fs");
     Shader lightCubeShader("../shaders/generic/3.3.light_cube.vs", "../shaders/generic/3.3.light_cube_materials.fs");
 
     // tell stb_image.h to flip loaded texture's on the y-axis (before loading model).
@@ -223,7 +223,7 @@ int main()
     glEnableVertexAttribArray(0);
 
     // camera properties
-    camera.Position = glm::vec3(100.0f, 450.0f, camera.Position.y);
+    camera.Position = glm::vec3(100.0f, 50.0f, camera.Position.y);
 
     // render loop
     // -----------
@@ -241,7 +241,7 @@ int main()
 
         // render
         // ------
-        glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
+        glClearColor(0.01f, 0.01f, 0.01f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         // view/projection transformations
@@ -252,7 +252,7 @@ int main()
         // lighting properties
         // -------------------
         glm::vec3 dirColor = glm::vec3(1.0f);
-        glm::vec3 pointLightPos = glm::vec3(cos(glfwGetTime() * 3.0f) * 150.0f, 10.0f, sin(glfwGetTime() * 3.0f) * 150.0f);
+        glm::vec3 pointLightPos = glm::vec3(cos(glfwGetTime()) * 150.0f, 10.0f, sin(glfwGetTime()) * 150.0f);
 
         // render planet
         // -------------
@@ -283,9 +283,9 @@ int main()
         asteroidsShader.setVec3("viewPos", camera.Position);
         // direction lighting
         asteroidsShader.setVec3("dirLight.direction", -0.2f, -1.0f, -0.3f);
-        asteroidsShader.setVec3("dirLight.ambient", dirColor * 0.05f);
-        asteroidsShader.setVec3("dirLight.diffuse", dirColor * 0.1f);
-        planetShader.setVec3("dirLight.specular", dirColor * 0.5f);
+        asteroidsShader.setVec3("dirLight.ambient", dirColor * 0.01f);
+        asteroidsShader.setVec3("dirLight.diffuse", dirColor * 0.01f);
+        planetShader.setVec3("dirLight.specular", dirColor * 0.2f);
         asteroidsShader.setFloat("shininess", 8.0f);
         // point lighting
         setPointLight(asteroidsShader, 0, pointLightPos, glm::vec3(1.0f));
@@ -336,8 +336,8 @@ void setPointLight(Shader &shader, int index, glm::vec3 position, glm::vec3 colo
     shader.setVec3(uniform + "diffuse", color * glm::vec3(0.8f, 0.8f, 0.8f));
     shader.setVec3(uniform + "specular", color * glm::vec3(1.0f, 1.0f, 1.0f));
     shader.setFloat(uniform + "constant", 0.5f);
-    shader.setFloat(uniform + "linear", 0.000009f);
-    shader.setFloat(uniform + "quadratic", 0.0000032f);
+    shader.setFloat(uniform + "linear", 0.00009f);
+    shader.setFloat(uniform + "quadratic", 0.000032f);
 }
 
 // glfw: whenever the window size changed (by OS or user resize) this callback function executes

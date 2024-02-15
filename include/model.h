@@ -207,7 +207,11 @@ private:
             if(!skip)
             {   // if texture hasn't been loaded already, load it
                 Texture texture;
-                texture.id = TextureFromFile(str.C_Str(), this->directory);
+                if (typeName == "texture_diffuse") {
+                    texture.id = TextureFromFile(str.C_Str(), this->directory, gammaCorrection);
+                } else {
+                    texture.id = TextureFromFile(str.C_Str(), this->directory, false);
+                }
                 texture.type = typeName;
                 texture.path = str.C_Str();
                 textures.push_back(texture);
@@ -238,9 +242,9 @@ unsigned int TextureFromFile(const char *path, const string &directory, bool gam
         if (nrComponents == 1)
             format = GL_RED;
         else if (nrComponents == 3)
-            format = GL_RGB;
+            format = gamma ? GL_SRGB : GL_RGB;
         else if (nrComponents == 4)
-            format = GL_RGBA;
+            format = gamma ? GL_SRGB_ALPHA : GL_RGBA;
 
         glBindTexture(GL_TEXTURE_2D, textureID);
         glTexImage2D(GL_TEXTURE_2D, 0, format, width, height, 0, format, GL_UNSIGNED_BYTE, data);
