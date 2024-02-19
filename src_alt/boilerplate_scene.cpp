@@ -1,6 +1,7 @@
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
 
+#include "../include/model.h"
 #include "../include/shader.h"
 #include "../include/camera.h"
 
@@ -13,7 +14,6 @@ void framebuffer_size_callback(GLFWwindow* window, int width, int height);
 void mouse_callback(GLFWwindow* window, double xpos, double ypos);
 void scroll_callback(GLFWwindow* window, double xoffset, double yoffset);
 
-std::vector<glm::mat4> getOmniViews(glm::mat4 &shadowProjection, glm::vec3 &lightPos);
 void renderScene(const Shader &shader);
 void renderCube(); 
 
@@ -34,6 +34,8 @@ InputState inputState;
 
 int main()
 {
+    // glfw: initialize and configure
+    // ------------------------------
     glfwInit();
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
@@ -66,39 +68,10 @@ int main()
     }
 
     glEnable(GL_DEPTH_TEST);
-    glEnable(GL_CULL_FACE);
 
-    Shader shader("../shaders/util/omni-shadow-map.vs", "../shaders/util/omni-shadow-map.fs");
-    Shader omniDepthShader("../shaders/util/omni-sm-depth.vs", "../shaders/util/omni-sm-depth.gs", "../shaders/util/omni-sm-depth.fs");
-    Shader lightCubeShader("../shaders/generic/3.3.light_cube.vs", "../shaders/generic/3.3.light_cube_materials.fs");
+    Shader shader("../shaders/generic/3.3.model_loading.vs", "../shaders/generic/3.3.model_loading.fs");
 
     unsigned int woodTexture = loadTexture("../resources/textures/wood-floor/wood-floor.jpg");
-
-    unsigned int depthCubemap, depthMapFBO;
-    glGenTextures(1, &depthCubemap);
-    const unsigned int SHADOW_WIDTH = 1024, SHADOW_HEIGHT= 1024;
-    glBindTexture(GL_TEXTURE_CUBE_MAP, depthCubemap);
-    for (unsigned int i = 0; i < 6; ++i)
-        glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, GL_DEPTH_COMPONENT,
-                     SHADOW_WIDTH, SHADOW_HEIGHT, 0, GL_DEPTH_COMPONENT, GL_FLOAT, NULL);
-    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
-
-    glGenFramebuffers(1, &depthMapFBO);
-    glBindFramebuffer(GL_FRAMEBUFFER, depthMapFBO);
-    glFramebufferTexture(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, depthCubemap, 0);
-    glDrawBuffer(GL_NONE);
-    glReadBuffer(GL_NONE);
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
-
-    shader.use();
-    shader.setInt("diffuseTexture", 0);
-    shader.setInt("depthMap", 1);
-
-    glm::vec3 lightPos(0.0f);
 
     while (!glfwWindowShouldClose(window))
     {
@@ -110,54 +83,16 @@ int main()
 
         glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
-        lightPos.z = static_cast<float>(sin(glfwGetTime() * 0.5) * 3.0);
-
-        float shadowAspect = (float)SHADOW_WIDTH / (float)SHADOW_HEIGHT;
-        float SHADOW_NEAR = 1.0f;
-        float SHADOW_FAR = 25.0f;
-        glm::mat4 shadowProjection = glm::perspective(glm::radians(90.0f), shadowAspect, SHADOW_NEAR, SHADOW_FAR);
-        std::vector<glm::mat4> shadowTransforms = getOmniViews(shadowProjection, lightPos);
-
-        glViewport(0, 0, SHADOW_WIDTH, SHADOW_HEIGHT);
-        glBindFramebuffer(GL_FRAMEBUFFER, depthMapFBO);
-            glClear(GL_DEPTH_BUFFER_BIT);
-            omniDepthShader.use();
-            for (unsigned int i = 0; i < 6; ++i)
-                omniDepthShader.setMat4("shadowMatrices[" + std::to_string(i) + "]", shadowTransforms[i]);
-            omniDepthShader.setFloat("far_plane", SHADOW_FAR);
-            omniDepthShader.setVec3("lightPos", lightPos);
-            renderScene(omniDepthShader);
-        glBindFramebuffer(GL_FRAMEBUFFER, 0);
-
-        float aspect = (float)SCR_WIDTH / (float)SCR_HEIGHT;
+        
         glViewport(0, 0, SCR_WIDTH, SCR_HEIGHT);
-        glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom), aspect, NEAR_PLANE, FAR_PLANE);
+        glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom), (float)SCR_WIDTH / (float)SCR_HEIGHT, NEAR_PLANE, FAR_PLANE);
         glm::mat4 view = camera.GetViewMatrix();
         shader.use();
         shader.setMat4("projection", projection);
         shader.setMat4("view", view);
-        shader.setVec3("lightPos", lightPos);
-        shader.setVec3("viewPos", camera.Position);
-        shader.setInt("shadows", true);
-        shader.setInt("soft", true);
-        shader.setFloat("far_plane", SHADOW_FAR);
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, woodTexture);
-        glActiveTexture(GL_TEXTURE1);
-        glBindTexture(GL_TEXTURE_CUBE_MAP, depthCubemap);
         renderScene(shader);
-
-        glm::mat4 model = glm::mat4(1.0f);
-        lightCubeShader.use();
-        lightCubeShader.setMat4("projection", projection);
-        lightCubeShader.setMat4("view", view);
-        lightCubeShader.setVec3("LSCol", glm::vec3(1.0f));
-        model = glm::mat4(1.0f);
-        model = glm::translate(model, lightPos);
-        model = glm::scale(model, glm::vec3(0.25f));
-        lightCubeShader.setMat4("model", model);
-        renderCube();
         
         glfwSwapBuffers(window);
         glfwPollEvents();
@@ -165,24 +100,6 @@ int main()
 
     glfwTerminate();
     return 0;
-}
-
-std::vector<glm::mat4> getOmniViews(glm::mat4 &shadowProjection, glm::vec3 &lightPos) {
-        std::vector<glm::mat4> shadowTransforms;
-        shadowTransforms.push_back(shadowProjection * 
-                glm::lookAt(lightPos, lightPos + glm::vec3( 1.0, 0.0, 0.0), glm::vec3(0.0,-1.0, 0.0)));
-        shadowTransforms.push_back(shadowProjection * 
-                glm::lookAt(lightPos, lightPos + glm::vec3(-1.0, 0.0, 0.0), glm::vec3(0.0,-1.0, 0.0)));
-        shadowTransforms.push_back(shadowProjection * 
-                glm::lookAt(lightPos, lightPos + glm::vec3( 0.0, 1.0, 0.0), glm::vec3(0.0, 0.0, 1.0)));
-        shadowTransforms.push_back(shadowProjection * 
-                glm::lookAt(lightPos, lightPos + glm::vec3( 0.0,-1.0, 0.0), glm::vec3(0.0, 0.0,-1.0)));
-        shadowTransforms.push_back(shadowProjection * 
-                glm::lookAt(lightPos, lightPos + glm::vec3( 0.0, 0.0, 1.0), glm::vec3(0.0,-1.0, 0.0)));
-        shadowTransforms.push_back(shadowProjection * 
-                glm::lookAt(lightPos, lightPos + glm::vec3( 0.0, 0.0,-1.0), glm::vec3(0.0,-1.0, 0.0)));
-
-        return shadowTransforms;
 }
 
 void renderScene(const Shader &shader) {
